@@ -1,6 +1,116 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Key, Plus, Trash2, CheckCircle2, XCircle, Loader2, Copy, Clock, Calendar, Image as ImageIcon, Save } from 'lucide-react';
+import { Key, Plus, Trash2, CheckCircle2, XCircle, Loader2, Copy, Clock, Calendar, Image as ImageIcon, Save, Database, Check, Download } from 'lucide-react';
+
+const SQL_CODE = `-- ==============================================================================
+-- SUPABASE DATABASE SCHEMA CHO ỨNG DỤNG SẮP XẾP THỜI KHÓA BIỂU
+-- Chạy toàn bộ mã này trong Supabase: SQL Editor -> New Query -> Run
+-- ==============================================================================
+
+-- 1. BẢNG LƯU DỮ LIỆU CẤU HÌNH THỜI KHÓA BIỂU CỦA NGƯỜI DÙNG (app_data)
+create table if not exists public.app_data (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+alter table public.app_data enable row level security;
+
+drop policy if exists "Allow all operations on app_data" on public.app_data;
+create policy "Allow all operations on app_data" 
+on public.app_data 
+for all 
+using (true) 
+with check (true);
+
+grant all on table public.app_data to anon, authenticated, service_role;
+
+
+-- 2. BẢNG QUẢN LÝ BẢN QUYỀN (licenses)
+create table if not exists public.licenses (
+  id uuid primary key default gen_random_uuid(),
+  key text unique not null,
+  type text default 'full', -- 'trial' (1 tháng) hoặc 'full' (1 năm)
+  status text default 'unused', -- 'unused' hoặc 'used'
+  used_by_email text,
+  used_by_name text,
+  used_by_phone text,
+  used_at timestamp with time zone,
+  duration_days integer default 365,
+  created_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+alter table public.licenses enable row level security;
+
+drop policy if exists "Allow all operations on licenses" on public.licenses;
+create policy "Allow all operations on licenses" 
+on public.licenses 
+for all 
+using (true) 
+with check (true);
+
+grant all on table public.licenses to anon, authenticated, service_role;
+
+
+-- 3. BẢNG CẤU HÌNH TOÀN CỤC (global_settings)
+create table if not exists public.global_settings (
+  id text primary key,
+  value jsonb not null default '{}'::jsonb,
+  updated_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+alter table public.global_settings enable row level security;
+
+drop policy if exists "Allow all operations on global_settings" on public.global_settings;
+create policy "Allow all operations on global_settings" 
+on public.global_settings 
+for all 
+using (true) 
+with check (true);
+
+grant all on table public.global_settings to anon, authenticated, service_role;
+
+
+-- 4. TẠO BUCKET STORAGE CHO ẢNH (images)
+insert into storage.buckets (id, name, public)
+values ('images', 'images', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists "Allow public select on images" on storage.objects;
+create policy "Allow public select on images" 
+on storage.objects for select 
+using (bucket_id = 'images');
+
+drop policy if exists "Allow public insert on images" on storage.objects;
+create policy "Allow public insert on images" 
+on storage.objects for insert 
+with check (bucket_id = 'images');
+
+drop policy if exists "Allow public update on images" on storage.objects;
+create policy "Allow public update on images" 
+on storage.objects for update 
+using (bucket_id = 'images');
+
+drop policy if exists "Allow public delete on images" on storage.objects;
+create policy "Allow public delete on images" 
+on storage.objects for delete 
+using (bucket_id = 'images');
+
+
+-- 5. DỮ LIỆU MẪU SẴN DÙNG (SEED DATA)
+insert into public.global_settings (id, value)
+values (
+  'login_bg', 
+  jsonb_build_object('url', 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?auto=format&fit=crop&w=1920&q=80')
+)
+on conflict (id) do nothing;
+
+insert into public.licenses (key, type, status, duration_days)
+values 
+  ('SL-DEMO-2026', 'full', 'unused', 365),
+  ('SL-PRO1-2026', 'full', 'unused', 365),
+  ('SL-TRIAL-01', 'trial', 'unused', 30)
+on conflict (key) do nothing;`;
 
 export default function LicenseManager() {
   const [keys, setKeys] = useState<any[]>([]);
@@ -9,6 +119,25 @@ export default function LicenseManager() {
   const [loginBg, setLoginBg] = useState('');
   const [savingBg, setSavingBg] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(SQL_CODE);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 2500);
+  };
+
+  const handleDownloadSql = () => {
+    const blob = new Blob([SQL_CODE], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'supabase_schema.sql';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const fetchKeys = async () => {
     if (!supabase) return;
@@ -304,6 +433,53 @@ export default function LicenseManager() {
             </tbody>
           </table>
         )}
+      </div>
+    </div>
+
+    {/* Database SQL Schema Card */}
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+            <Database className="w-5 h-5 text-indigo-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-slate-800">Cấu hình cơ sở dữ liệu Supabase (SQL Schema)</h3>
+            <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Cấp lại và kiểm tra toàn bộ bảng lưu trữ dữ liệu thiết lập</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCopySql}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors shadow-sm cursor-pointer"
+          >
+            {copiedSql ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+            {copiedSql ? 'Đã sao chép!' : 'Sao chép SQL'}
+          </button>
+          <button
+            onClick={handleDownloadSql}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-200 transition-colors border border-slate-200 cursor-pointer"
+          >
+            <Download className="w-4 h-4" />
+            Tải file .sql
+          </button>
+        </div>
+      </div>
+      <div className="p-6 space-y-4">
+        <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-xl text-xs text-amber-900 leading-relaxed">
+          <p className="font-bold text-sm text-amber-950 mb-1">Các bảng và quyền được thiết lập tự động:</p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li><strong>app_data:</strong> Lưu cấu hình thiết lập thời khóa biểu (lớp, môn, giáo viên, số tiết, buổi học, tiết nghỉ, TKB đã xếp theo từng tuần).</li>
+            <li><strong>licenses:</strong> Lưu danh sách mã bản quyền 1 tháng / 1 năm, người kích hoạt và thời hạn.</li>
+            <li><strong>global_settings:</strong> Lưu hình ảnh nền màn hình đăng nhập và cấu hình hệ thống chung.</li>
+            <li><strong>storage bucket &apos;images&apos;:</strong> Lưu ảnh nền, ảnh biểu mẫu và tài nguyên tải lên.</li>
+          </ul>
+        </div>
+        <div>
+          <pre className="p-4 bg-slate-900 text-slate-200 rounded-xl text-xs font-mono overflow-x-auto max-h-72 select-all leading-relaxed">
+            {SQL_CODE}
+          </pre>
+        </div>
       </div>
     </div>
   </div>

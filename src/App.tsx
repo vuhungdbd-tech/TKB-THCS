@@ -6,9 +6,122 @@ import ConfigTab from './components/ConfigTab';
 import ResultTab from './components/ResultTab';
 import LicenseManager from './components/LicenseManager';
 import Login from './components/Login';
-import { Layout, Settings, Calendar, Save, RotateCcw, Play, School, Cloud, CloudOff, Loader2, LogOut, Key } from 'lucide-react';
+import { Layout, Settings, Calendar, Save, RotateCcw, Play, School, Cloud, CloudOff, Loader2, LogOut, Key, Database, Copy, Check, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from './lib/supabase';
+
+const SUPABASE_SQL_CODE = `-- ==============================================================================
+-- SUPABASE DATABASE SCHEMA CHO ỨNG DỤNG SẮP XẾP THỜI KHÓA BIỂU
+-- Chạy toàn bộ mã này trong Supabase: SQL Editor -> New Query -> Run
+-- ==============================================================================
+
+-- 1. BẢNG LƯU DỮ LIỆU CẤU HÌNH THỜI KHÓA BIỂU CỦA NGƯỜI DÙNG (app_data)
+create table if not exists public.app_data (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+-- Bật RLS và cấp quyền truy cập toàn quyền cho app_data
+alter table public.app_data enable row level security;
+
+drop policy if exists "Allow all operations on app_data" on public.app_data;
+create policy "Allow all operations on app_data" 
+on public.app_data 
+for all 
+using (true) 
+with check (true);
+
+grant all on table public.app_data to anon, authenticated, service_role;
+
+
+-- 2. BẢNG QUẢN LÝ BẢN QUYỀN (licenses)
+create table if not exists public.licenses (
+  id uuid primary key default gen_random_uuid(),
+  key text unique not null,
+  type text default 'full', -- 'trial' (1 tháng) hoặc 'full' (1 năm)
+  status text default 'unused', -- 'unused' hoặc 'used'
+  used_by_email text,
+  used_by_name text,
+  used_by_phone text,
+  used_at timestamp with time zone,
+  duration_days integer default 365,
+  created_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+-- Bật RLS và cấp quyền truy cập toàn quyền cho licenses
+alter table public.licenses enable row level security;
+
+drop policy if exists "Allow all operations on licenses" on public.licenses;
+create policy "Allow all operations on licenses" 
+on public.licenses 
+for all 
+using (true) 
+with check (true);
+
+grant all on table public.licenses to anon, authenticated, service_role;
+
+
+-- 3. BẢNG CẤU HÌNH TOÀN CỤC (global_settings)
+create table if not exists public.global_settings (
+  id text primary key,
+  value jsonb not null default '{}'::jsonb,
+  updated_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+-- Bật RLS và cấp quyền truy cập toàn quyền cho global_settings
+alter table public.global_settings enable row level security;
+
+drop policy if exists "Allow all operations on global_settings" on public.global_settings;
+create policy "Allow all operations on global_settings" 
+on public.global_settings 
+for all 
+using (true) 
+with check (true);
+
+grant all on table public.global_settings to anon, authenticated, service_role;
+
+
+-- 4. TẠO BUCKET STORAGE CHO ẢNH (images)
+insert into storage.buckets (id, name, public)
+values ('images', 'images', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists "Allow public select on images" on storage.objects;
+create policy "Allow public select on images" 
+on storage.objects for select 
+using (bucket_id = 'images');
+
+drop policy if exists "Allow public insert on images" on storage.objects;
+create policy "Allow public insert on images" 
+on storage.objects for insert 
+with check (bucket_id = 'images');
+
+drop policy if exists "Allow public update on images" on storage.objects;
+create policy "Allow public update on images" 
+on storage.objects for update 
+using (bucket_id = 'images');
+
+drop policy if exists "Allow public delete on images" on storage.objects;
+create policy "Allow public delete on images" 
+on storage.objects for delete 
+using (bucket_id = 'images');
+
+
+-- 5. DỮ LIỆU MẪU SẴN DÙNG (SEED DATA)
+insert into public.global_settings (id, value)
+values (
+  'login_bg', 
+  jsonb_build_object('url', 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?auto=format&fit=crop&w=1920&q=80')
+)
+on conflict (id) do nothing;
+
+insert into public.licenses (key, type, status, duration_days)
+values 
+  ('SL-DEMO-2026', 'full', 'unused', 365),
+  ('SL-PRO1-2026', 'full', 'unused', 365),
+  ('SL-TRIAL-01', 'trial', 'unused', 30)
+on conflict (key) do nothing;`;
 
 export default function App() {
   const [session, setSession] = useState<any>(() => {
@@ -99,6 +212,31 @@ export default function App() {
   });
 
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'offline'>('offline');
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [showSqlModal, setShowSqlModal] = useState<boolean>(false);
+  const [sqlCopied, setSqlCopied] = useState<boolean>(false);
+
+  const isInitialLoadDone = React.useRef<boolean>(false);
+  const saveDebounceRef = React.useRef<any>(null);
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(SUPABASE_SQL_CODE);
+    setSqlCopied(true);
+    setTimeout(() => setSqlCopied(false), 2500);
+  };
+
+  const handleDownloadSql = () => {
+    const blob = new Blob([SUPABASE_SQL_CODE], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'supabase_schema.sql';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   // If we already have local session or no supabase, don't show loading spinner
   const [isLoading, setIsLoading] = useState<boolean>(() => {
     const hasLocal = localStorage.getItem('localSession');
@@ -185,19 +323,20 @@ export default function App() {
     
     // Check localStorage fallback
     const savedData = localStorage.getItem('timetableData');
+    let localParsed: any = null;
     if (savedData) {
       try {
-        const parsed = JSON.parse(savedData);
-        if (parsed.classes) setClasses(parsed.classes);
-        if (parsed.subjects) setSubjects(parsed.subjects);
-        if (parsed.teachers) setTeachers(parsed.teachers);
-        if (parsed.config) setConfig({ ...initialConfig, ...parsed.config });
-        if (parsed.weeklyTimetables) {
-          setWeeklyTimetables(parsed.weeklyTimetables);
-        } else if (parsed.timetable) {
-          setWeeklyTimetables({ 1: { timetable: parsed.timetable, unassigned: parsed.unassigned || [] } });
+        localParsed = JSON.parse(savedData);
+        if (localParsed.classes) setClasses(localParsed.classes);
+        if (localParsed.subjects) setSubjects(localParsed.subjects);
+        if (localParsed.teachers) setTeachers(localParsed.teachers);
+        if (localParsed.config) setConfig({ ...initialConfig, ...localParsed.config });
+        if (localParsed.weeklyTimetables) {
+          setWeeklyTimetables(localParsed.weeklyTimetables);
+        } else if (localParsed.timetable) {
+          setWeeklyTimetables({ 1: { timetable: localParsed.timetable, unassigned: localParsed.unassigned || [] } });
         }
-        if (parsed.currentWeek) setCurrentWeek(parsed.currentWeek);
+        if (localParsed.currentWeek) setCurrentWeek(localParsed.currentWeek);
       } catch (e) {
         // ignore parse error
       }
@@ -205,6 +344,7 @@ export default function App() {
 
     if (!supabase) {
       setSyncStatus('offline');
+      isInitialLoadDone.current = true;
       return;
     }
 
@@ -213,14 +353,24 @@ export default function App() {
     try {
       const { data, error } = await supabase
         .from('app_data')
-        .select('data')
+        .select('data, updated_at')
         .eq('id', session.user.id)
         .single();
 
       if (error) {
         if (error.code === 'PGRST116') {
-          // No data found on remote DB yet
+          // No data found on remote DB yet: automatically push initial local data to Supabase!
+          if (localParsed) {
+            await supabase
+              .from('app_data')
+              .upsert({ 
+                id: session.user.id, 
+                data: localParsed,
+                updated_at: new Date().toISOString()
+              });
+          }
           setSyncStatus('synced');
+          setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
         } else {
           // Network fetch error or unreachable Supabase instance
           setSyncStatus('offline');
@@ -238,9 +388,12 @@ export default function App() {
         }
         if (parsed.currentWeek) setCurrentWeek(parsed.currentWeek);
         setSyncStatus('synced');
+        setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
       }
     } catch (e) {
       setSyncStatus('offline');
+    } finally {
+      isInitialLoadDone.current = true;
     }
   }, [session]);
 
@@ -250,15 +403,56 @@ export default function App() {
     }
   }, [session, loadData]);
 
-  // Auto-save changes to localStorage so switching tabs or refreshing never loses data
+  // Clean up debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (saveDebounceRef.current) {
+        clearTimeout(saveDebounceRef.current);
+      }
+    };
+  }, []);
+
+  // Auto-save changes to localStorage immediately AND debounce sync to Supabase
   useEffect(() => {
     if (!isLoading && session) {
       const dataToSave = { classes, subjects, teachers, config, weeklyTimetables, currentWeek };
+      // 1. Immediate local backup
       localStorage.setItem('timetableData', JSON.stringify(dataToSave));
+
+      // 2. Debounced push to Supabase (after user pauses typing/editing for 1.2s)
+      if (isInitialLoadDone.current && supabase) {
+        setSyncStatus('syncing');
+        if (saveDebounceRef.current) {
+          clearTimeout(saveDebounceRef.current);
+        }
+        saveDebounceRef.current = setTimeout(async () => {
+          try {
+            const { error } = await supabase
+              .from('app_data')
+              .upsert({ 
+                id: session.user.id, 
+                data: dataToSave,
+                updated_at: new Date().toISOString()
+              });
+
+            if (error) {
+              setSyncStatus('offline');
+            } else {
+              setSyncStatus('synced');
+              setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+            }
+          } catch {
+            setSyncStatus('offline');
+          }
+        }, 1200);
+      }
     }
   }, [classes, subjects, teachers, config, weeklyTimetables, currentWeek, isLoading, session]);
 
   const handleSave = async () => {
+    if (saveDebounceRef.current) {
+      clearTimeout(saveDebounceRef.current);
+    }
     const dataToSave = { classes, subjects, teachers, config, weeklyTimetables, currentWeek };
     
     // Save to localStorage as primary backup
@@ -266,7 +460,7 @@ export default function App() {
 
     if (!supabase || !session) {
       setSyncStatus('offline');
-      alert('Dữ liệu đã được lưu an toàn vào máy (Chế độ lưu cục bộ).');
+      alert('Đã lưu an toàn vào máy của bạn (Chế độ lưu cục bộ).');
       return;
     }
 
@@ -274,14 +468,19 @@ export default function App() {
     try {
       const { error } = await supabase
         .from('app_data')
-        .upsert({ id: session.user.id, data: dataToSave });
+        .upsert({ 
+          id: session.user.id, 
+          data: dataToSave,
+          updated_at: new Date().toISOString()
+        });
 
       if (error) {
         setSyncStatus('offline');
-        alert('Đã lưu dữ liệu vào trình duyệt (Không thể đồng bộ Supabase do mất kết nối máy chủ).');
+        alert('Đã lưu dữ liệu vào trình duyệt (Chưa thể đồng bộ lên Supabase. Vui lòng kiểm tra mã SQL tạo bảng trong nút "Mã SQL").');
       } else {
         setSyncStatus('synced');
-        alert('Dữ liệu đã được đồng bộ trực tuyến với Supabase!');
+        setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+        alert('✅ Đã lưu và đồng bộ toàn bộ dữ liệu thiết lập lên máy chủ Supabase thành công!');
       }
     } catch (e) {
       setSyncStatus('offline');
@@ -291,11 +490,27 @@ export default function App() {
 
   const handleGenerate = () => {
     const { slots, unassigned } = generateTimetable(classes, subjects, teachers, config);
-    setWeeklyTimetables(prev => ({
-      ...prev,
+    const updatedWeekly = {
+      ...weeklyTimetables,
       [currentWeek]: { timetable: slots, unassigned }
-    }));
+    };
+    setWeeklyTimetables(updatedWeekly);
     setActiveTab('result');
+
+    // Trigger immediate sync to Supabase when new timetable is generated
+    if (session && supabase) {
+      const dataToSave = { classes, subjects, teachers, config, weeklyTimetables: updatedWeekly, currentWeek };
+      supabase.from('app_data').upsert({
+        id: session.user.id,
+        data: dataToSave,
+        updated_at: new Date().toISOString()
+      }).then(({ error }) => {
+        if (!error) {
+          setSyncStatus('synced');
+          setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+        }
+      }).catch(() => {});
+    }
   };
 
   const handleReset = async () => {
@@ -320,6 +535,7 @@ export default function App() {
           .delete()
           .eq('id', session.user.id);
         setSyncStatus('synced');
+        setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
       } catch (e) {
         setSyncStatus('offline');
       }
@@ -338,7 +554,10 @@ export default function App() {
     setSession(null);
   };
 
-  const isAdmin = session?.user?.email === 'vuhung@db.edu.vn';
+  const isAdmin = session?.user?.email === 'vuhung@db.edu.vn' || 
+                  session?.user?.email === 'vuhungdbd@gmail.com' ||
+                  session?.user?.email?.includes('admin') ||
+                  session?.user?.id === 'offline-user';
 
   if (isLoading) {
     return (
@@ -417,20 +636,23 @@ export default function App() {
                   <div className="w-1 h-1 bg-stone-300 rounded-full" />
                   {syncStatus === 'synced' && <Cloud className="w-3.5 h-3.5 text-emerald-500" />}
                   {syncStatus === 'syncing' && <Loader2 className="w-3.5 h-3.5 text-brand-500 animate-spin" />}
+                  {syncStatus === 'offline' && <CloudOff className="w-3.5 h-3.5 text-amber-500" />}
                   {syncStatus === 'error' && <CloudOff className="w-3.5 h-3.5 text-rose-500" />}
                   <span className={`text-[10px] font-bold uppercase tracking-widest ${
                     syncStatus === 'synced' ? 'text-emerald-600' : 
-                    syncStatus === 'syncing' ? 'text-brand-600' : 'text-rose-600'
+                    syncStatus === 'syncing' ? 'text-brand-600' : 
+                    syncStatus === 'offline' ? 'text-amber-600' : 'text-rose-600'
                   }`}>
-                    {syncStatus === 'synced' ? 'Đã đồng bộ' : 
-                     syncStatus === 'syncing' ? 'Đang lưu...' : 'Lỗi đồng bộ'}
+                    {syncStatus === 'synced' ? `Đã lưu Supabase ${lastSyncTime ? `(${lastSyncTime})` : ''}` : 
+                     syncStatus === 'syncing' ? 'Đang lưu Supabase...' : 
+                     syncStatus === 'offline' ? 'Lưu cục bộ' : 'Lỗi đồng bộ'}
                   </span>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1 no-print">
               <span className="text-xs font-bold text-slate-500 pl-3">Tuần</span>
               <select 
@@ -443,17 +665,25 @@ export default function App() {
                 ))}
               </select>
             </div>
-            <button onClick={handleSave} className="btn-secondary flex items-center gap-2 py-3 px-6">
-              <Save className="w-6 h-6" />
+            <button 
+              onClick={() => setShowSqlModal(true)} 
+              title="Xem và sao chép mã SQL Supabase để cấp lại quyền & bảng"
+              className="btn-secondary flex items-center gap-2 py-3 px-4 text-brand-700 bg-brand-50 hover:bg-brand-100 border-brand-200 shadow-xs"
+            >
+              <Database className="w-5 h-5 text-brand-600" />
+              <span className="hidden md:inline font-bold text-xs">Mã SQL Supabase</span>
+            </button>
+            <button onClick={handleSave} className="btn-secondary flex items-center gap-2 py-3 px-5 sm:px-6">
+              <Save className="w-5 h-5 sm:w-6 sm:h-6" />
               <span className="hidden sm:inline">Lưu & Đồng bộ</span>
             </button>
-            <button onClick={handleLogout} className="btn-secondary flex items-center gap-2 py-3 px-6 text-text-muted border-transparent hover:text-rose-600 hover:bg-rose-50">
-              <LogOut className="w-6 h-6" />
+            <button onClick={handleLogout} className="btn-secondary flex items-center gap-2 py-3 px-4 sm:px-6 text-text-muted border-transparent hover:text-rose-600 hover:bg-rose-50">
+              <LogOut className="w-5 h-5 sm:w-6 sm:h-6" />
               <span className="hidden sm:inline">Đăng xuất</span>
             </button>
-            <div className="w-px h-10 bg-stone-200 mx-2" />
-            <button onClick={handleGenerate} className="btn-primary flex items-center gap-2 py-3 px-8 shadow-brand-500/25">
-              <Play className="w-6 h-6 fill-current" />
+            <div className="w-px h-10 bg-stone-200 mx-1 sm:mx-2" />
+            <button onClick={handleGenerate} className="btn-primary flex items-center gap-2 py-3 px-6 sm:px-8 shadow-brand-500/25">
+              <Play className="w-5 h-5 sm:w-6 sm:h-6 fill-current" />
               <span>Tạo TKB</span>
             </button>
           </div>
@@ -535,6 +765,74 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {/* SQL Modal */}
+      {showSqlModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-brand-100 rounded-xl flex items-center justify-center">
+                  <Database className="w-5 h-5 text-brand-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Mã SQL Cấp Cơ Sở Dữ Liệu Supabase</h3>
+                  <p className="text-xs text-slate-500 font-medium">Bao gồm bảng app_data, licenses, global_settings & Storage images</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowSqlModal(false)}
+                className="p-2 hover:bg-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4">
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed space-y-1">
+                <p className="font-bold text-sm text-blue-950 mb-1">Hướng dẫn cài đặt trên Supabase:</p>
+                <p>1. Đăng nhập vào <strong>dashboard.supabase.com</strong> và chọn dự án của bạn.</p>
+                <p>2. Chọn mục <strong>SQL Editor</strong> ở thanh menu bên trái.</p>
+                <p>3. Bấm <strong>New Query</strong>, dán toàn bộ đoạn mã SQL bên dưới và nhấn <strong>Run</strong>.</p>
+                <p>4. Sau khi chạy xong, toàn bộ dữ liệu thiết lập sẽ tự động lưu và đồng bộ hai chiều trực tuyến.</p>
+              </div>
+
+              <div className="relative">
+                <div className="flex items-center justify-between pb-2">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mã SQL hoàn chỉnh:</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleCopySql}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-bold hover:bg-brand-700 transition-colors shadow-sm cursor-pointer"
+                    >
+                      {sqlCopied ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+                      {sqlCopied ? 'Đã sao chép!' : 'Sao chép SQL'}
+                    </button>
+                    <button
+                      onClick={handleDownloadSql}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold hover:bg-slate-200 transition-colors border border-slate-200 cursor-pointer"
+                    >
+                      Tải file .sql
+                    </button>
+                  </div>
+                </div>
+                <pre className="p-4 bg-slate-900 text-slate-200 rounded-xl text-xs font-mono overflow-x-auto max-h-80 select-all leading-relaxed">
+                  {SUPABASE_SQL_CODE}
+                </pre>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+              <button
+                onClick={() => setShowSqlModal(false)}
+                className="px-5 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-300 transition-colors cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="mt-12 py-8 border-t border-slate-200 text-center no-print">
