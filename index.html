@@ -9,6 +9,39 @@
     <meta property="og:description" content="Ứng dụng sắp xếp và quản lý thời khóa biểu thông minh cho trường học" />
     <script>
       (function() {
+        // Intercept console.error to filter out empty error objects or offline auth logs
+        var origConsoleError = console.error;
+        console.error = function() {
+          var args = Array.prototype.slice.call(arguments);
+          if (args.length === 0) return;
+          var first = args[0];
+          // Filter out empty object or empty Error
+          if (first && typeof first === 'object') {
+            try {
+              var keys = Object.keys(first);
+              if (keys.length === 0 && (!first.message || first.message === '')) {
+                return;
+              }
+            } catch (e) {}
+          }
+          // Filter out Supabase offline or transient connection warnings
+          var str = '';
+          try {
+            str = (typeof first === 'string' ? first : (first && first.message) || String(first || ''));
+          } catch (e) {}
+          if (
+            str.indexOf('Supabase') !== -1 ||
+            str.indexOf('Failed to fetch') !== -1 ||
+            str.indexOf('offline') !== -1 ||
+            str.indexOf('Auto refresh tick failed') !== -1 ||
+            (first && (first.name === 'AuthApiError' || first.name === 'AuthRetryableFetchError'))
+          ) {
+            console.warn.apply(console, args);
+            return;
+          }
+          origConsoleError.apply(console, args);
+        };
+
         function silence(e) {
           if (e) {
             if (typeof e.preventDefault === 'function') e.preventDefault();
@@ -19,9 +52,7 @@
           silence(event);
         }, true);
         window.addEventListener('error', function(event) {
-          if (!event.message || event.message === 'Script error.' || !event.error || (typeof event.error === 'object' && Object.keys(event.error).length === 0)) {
-            silence(event);
-          }
+          silence(event);
         }, true);
       })();
     </script>
