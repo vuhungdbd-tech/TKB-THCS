@@ -523,6 +523,68 @@ export function generateTimetable(
     }
   };
 
+  // Pre-assign Fixed Periods (Chào cờ, HĐTN...)
+  if (config.fixedPeriods && config.fixedPeriods.length > 0) {
+    for (const fp of config.fixedPeriods) {
+      const { day, period, subjectId } = fp;
+      if (day < 0 || day >= config.days || period < 0 || period >= totalPeriods) continue;
+
+      for (const cls of classes) {
+        // Find if this class already has a lesson of this subject in the 'lessons' pool
+        const idx = lessons.findIndex(l => l.classId === cls.id && l.subjectId === subjectId);
+        
+        if (idx !== -1) {
+          const l = lessons[idx];
+          if (l.isDouble) {
+            // Split it: convert current to single and place it, and add a single lesson back to pool
+            l.isDouble = false;
+            lessons.push({
+              ...l,
+              isDouble: false
+            });
+            lessons.splice(idx, 1);
+          } else {
+            lessons.splice(idx, 1);
+          }
+          
+          // Place directly
+          classSchedule[cls.id][day][period] = subjectId;
+          classSubjectDays[cls.id][subjectId].add(day);
+
+          const teacherId = l.teacherId;
+          if (teacherId && teacherId !== 'none' && teacherSchedule[teacherId]) {
+            teacherSchedule[teacherId][day][period] = cls.id;
+            teacherDailyCount[teacherId][day] = (teacherDailyCount[teacherId][day] || 0) + 1;
+          }
+
+          slots.push({
+            classId: cls.id,
+            day,
+            period,
+            subjectId,
+            teacherId,
+            subTopic: l.subTopic,
+            isExam: l.isExam,
+            isFixed: true
+          });
+        } else {
+          // Reserve the slot as a placeholder if not explicitly in the lessons list
+          classSchedule[cls.id][day][period] = subjectId;
+          classSubjectDays[cls.id][subjectId].add(day);
+          
+          slots.push({
+            classId: cls.id,
+            day,
+            period,
+            subjectId,
+            teacherId: 'none',
+            isFixed: true
+          });
+        }
+      }
+    }
+  }
+
   // 3. Greedy placement prioritizing filling daily target periods cleanly
   for (let i = 0; i < lessons.length; i++) {
     const lesson = lessons[i];
@@ -701,7 +763,7 @@ export function generateTimetable(
         if (!existingSubId) continue;
 
         const existingSlot = slots.find(s => s.classId === cls.id && s.day === d && s.period === p);
-        if (!existingSlot || existingSlot.isExam) continue;
+        if (!existingSlot || existingSlot.isExam || existingSlot.isFixed) continue;
 
         const existingTeacherId = existingSlot.teacherId;
 
@@ -817,7 +879,7 @@ export function generateTimetable(
                   if (!subId) continue;
 
                   const sDonor = slots.find(s => s.classId === cls.id && s.day === dayDonor && s.period === pDonor);
-                  if (!sDonor || sDonor.isExam) continue;
+                  if (!sDonor || sDonor.isExam || sDonor.isFixed) continue;
 
                   // Check if target day already has this subject
                   if (classSubjectDays[cls.id][subId].has(dayTarget)) continue;
@@ -878,7 +940,7 @@ export function generateTimetable(
               for (let pNext = p + 1; pNext < endP; pNext++) {
                 if (classSchedule[cls.id][day][pNext]) {
                   const s = slots.find(slot => slot.classId === cls.id && slot.day === day && slot.period === pNext);
-                  if (!s || s.isExam) break;
+                  if (!s || s.isExam || s.isFixed) break;
 
                   const subId = classSchedule[cls.id][day][pNext];
                   const tId = s.teacherId;
@@ -909,7 +971,7 @@ export function generateTimetable(
                     const isStartOfDouble = pNext + 1 < endP && classSchedule[cls.id][day][pNext + 1] === subId;
                     if (isStartOfDouble) {
                       const s2 = slots.find(slot => slot.classId === cls.id && slot.day === day && slot.period === pNext + 1);
-                      if (s2 && !s2.isExam) {
+                      if (s2 && !s2.isExam && !s2.isFixed) {
                         if (p + 1 < endP && (!classSchedule[cls.id][day][p + 1] || p + 1 === pNext)) {
                           const t2Id = s2.teacherId;
                           const canMoveT1 = !isTeacherOff(tId, day, p) && !isSchoolOff(day, p) && (!teacherSchedule[tId] || !teacherSchedule[tId][day] || !teacherSchedule[tId][day][p] || teacherSchedule[tId][day][p] === cls.id);

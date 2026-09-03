@@ -56,6 +56,13 @@ export interface DailyPeriodLimit {
   afternoon: number;
 }
 
+export interface FixedPeriod {
+  id: string;
+  day: number; // 0 = Monday, 5 = Saturday
+  period: number; // 0 to morningLessons + afternoonLessons - 1
+  subjectId: string;
+}
+
 export interface Config {
   days: number; // e.g., 6 for Mon-Sat
   morningLessons: number;
@@ -74,6 +81,7 @@ export interface Config {
   timeOff?: { day: number, session: SessionType }[];
   gradeDailyPeriods?: Record<number, DailyPeriodLimit[]>; // grade -> day -> { morning, afternoon }
   classDailyPeriods?: Record<string, DailyPeriodLimit[]>; // classId -> day -> { morning, afternoon }
+  fixedPeriods?: FixedPeriod[];
 }
 
 export interface TimetableSlot {
@@ -84,6 +92,7 @@ export interface TimetableSlot {
   teacherId: string;
   isExam?: boolean;
   subTopic?: string; // e.g., "Vật lý", "Hóa học", "Sinh học", "Lịch sử", "Địa lý"
+  isFixed?: boolean;
 }
 
 export interface AppState {

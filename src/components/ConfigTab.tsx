@@ -18,7 +18,8 @@ import {
   GraduationCap,
   CalendarDays,
   ChevronRight,
-  Layers
+  Layers,
+  Pin
 } from 'lucide-react';
 
 interface Props {
@@ -82,7 +83,7 @@ export default function ConfigTab({ classes, setClasses, subjects, setSubjects, 
           {subTab === 'classes' && <ClassConfig classes={classes} setClasses={setClasses} config={config} setConfig={setConfig} />}
           {subTab === 'subjects' && <SubjectConfig subjects={subjects} setSubjects={setSubjects} />}
           {subTab === 'teachers' && <TeacherConfig teachers={teachers} setTeachers={setTeachers} subjects={subjects} classes={classes} config={config} />}
-          {subTab === 'time' && <TimeConfig config={config} setConfig={setConfig} classes={classes} />}
+          {subTab === 'time' && <TimeConfig config={config} setConfig={setConfig} classes={classes} subjects={subjects} />}
           {subTab === 'exams' && <ExamConfigUI config={config} setConfig={setConfig} subjects={subjects} />}
         </div>
       </div>
@@ -1227,7 +1228,41 @@ function DailyPeriodsConfigUI({ config, setConfig, classes }: { config: Config; 
   );
 }
 
-function TimeConfig({ config, setConfig, classes }: { config: Config; setConfig: any; classes: Class[] }) {
+function TimeConfig({ config, setConfig, classes, subjects }: { config: Config; setConfig: any; classes: Class[]; subjects: Subject[] }) {
+  const fixedPeriods = config.fixedPeriods || [];
+
+  const addFixedPeriod = () => {
+    const newFp = {
+      id: Math.random().toString(36).substr(2, 9),
+      day: 0, // Thứ 2
+      period: 0, // Tiết 1
+      subjectId: subjects[0]?.id || '',
+    };
+    setConfig({
+      ...config,
+      fixedPeriods: [...fixedPeriods, newFp]
+    });
+  };
+
+  const removeFixedPeriod = (id: string) => {
+    setConfig({
+      ...config,
+      fixedPeriods: fixedPeriods.filter(fp => fp.id !== id)
+    });
+  };
+
+  const updateFixedPeriod = (id: string, field: string, value: any) => {
+    setConfig({
+      ...config,
+      fixedPeriods: fixedPeriods.map(fp => {
+        if (fp.id === id) {
+          return { ...fp, [field]: value };
+        }
+        return fp;
+      })
+    });
+  };
+
   return (
     <div className="space-y-8">
       <div>
@@ -1451,6 +1486,107 @@ function TimeConfig({ config, setConfig, classes }: { config: Config; setConfig:
                 )}
               </div>
             </div>
+          </div>
+
+          <div className="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                <Pin className="w-5 h-5 text-brand-600 rotate-45" />
+                Cấu hình tiết cố định (Chào cờ, HĐTN...)
+              </h3>
+              <button 
+                onClick={addFixedPeriod}
+                className="text-xs font-bold text-brand-600 hover:text-brand-700 flex items-center gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" /> Thêm tiết cố định
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+              Thiết lập các tiết học đặc thù được xếp cố định cho <strong>tất cả các lớp / khối</strong> (ví dụ: Chào cờ hoặc Hoạt động trải nghiệm ở Tiết 1 Thứ Hai). Tiết này vẫn tự động phân công cho giáo viên giảng dạy môn học đó và tính vào tổng định mức giờ dạy.
+            </p>
+
+            {fixedPeriods.length > 0 ? (
+              <div className="space-y-3">
+                {fixedPeriods.map((fp, idx) => {
+                  const totalPeriods = (config.morningLessons || 0) + (config.afternoonLessons || 0);
+                  return (
+                    <div key={fp.id || idx} className="flex flex-wrap items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                      {/* Day selection */}
+                      <div className="flex-1 min-w-[120px]">
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Thứ</label>
+                        <select 
+                          value={fp.day}
+                          onChange={(e) => updateFixedPeriod(fp.id, 'day', parseInt(e.target.value))}
+                          className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-brand-500"
+                        >
+                          {Array.from({ length: config.days || 6 }).map((_, dIdx) => (
+                            <option key={dIdx} value={dIdx}>Thứ {dIdx + 2}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Period selection */}
+                      <div className="flex-1 min-w-[120px]">
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Tiết học</label>
+                        <select 
+                          value={fp.period}
+                          onChange={(e) => updateFixedPeriod(fp.id, 'period', parseInt(e.target.value))}
+                          className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-brand-500"
+                        >
+                          {Array.from({ length: totalPeriods }).map((_, pIdx) => {
+                            const isMorning = pIdx < (config.morningLessons || 5);
+                            const num = isMorning ? pIdx + 1 : pIdx - (config.morningLessons || 5) + 1;
+                            return (
+                              <option key={pIdx} value={pIdx}>
+                                {isMorning ? `Sáng - Tiết ${num}` : `Chiều - Tiết ${num}`}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+
+                      {/* Subject selection */}
+                      <div className="flex-grow min-w-[180px]">
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Môn học áp dụng</label>
+                        <select 
+                          value={fp.subjectId}
+                          onChange={(e) => updateFixedPeriod(fp.id, 'subjectId', e.target.value)}
+                          className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-brand-500"
+                        >
+                          <option value="">-- Chọn môn học --</option>
+                          {subjects.map(s => (
+                            <option key={s.id} value={s.id}>{s.name} ({s.lessonsPerWeek} tiết/tuần)</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Delete button */}
+                      <div className="self-end pb-1">
+                        <button 
+                          onClick={() => removeFixedPeriod(fp.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                          title="Xóa tiết cố định"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-6 border border-dashed border-slate-200 rounded-xl bg-slate-50">
+                <Pin className="w-8 h-8 text-slate-300 mx-auto mb-2 rotate-45" />
+                <p className="text-xs text-slate-400">Chưa có tiết học cố định nào được thiết lập</p>
+                <button
+                  onClick={addFixedPeriod}
+                  className="mt-2 text-xs font-bold text-brand-600 hover:text-brand-700"
+                >
+                  Thêm tiết đầu tiên
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
