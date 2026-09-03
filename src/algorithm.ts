@@ -410,12 +410,13 @@ export function generateTimetable(
       const isTeacherAvailableForSlot = (d: number, p: number) => {
         const tSlots = slots.filter(s => s.teacherId === lesson.teacherId && s.day === d && s.period === p);
         if (tSlots.length === 0) return true;
-        if (allowGradeOverlap && cls) {
+        // ONLY allow teacher overlap (dạy ghép) if we are relaxing constraints and the subject allows grade overlap
+        if (relaxConstraints && allowGradeOverlap && cls) {
           const allSameGradeAndSubject = tSlots.every(ts => {
             const otherCls = classes.find(c => c.id === ts.classId);
             return otherCls && otherCls.grade === cls.grade && ts.subjectId === lesson.subjectId;
           });
-          if (allSameGradeAndSubject) return true; // Online broadcast teaching allowed
+          if (allSameGradeAndSubject) return true; // Joint class teaching allowed
         }
         return false;
       };
@@ -826,7 +827,7 @@ export function generateTimetable(
                     if (!classSchedule[cls.id][dayTarget]?.[pTarget]) {
                       const tId = sDonor.teacherId;
                       const canMove = !isSchoolOff(dayTarget, pTarget) &&
-                                      (tId === 'none' || (!isTeacherOff(tId, dayTarget, pTarget) && (!teacherSchedule[tId][dayTarget][pTarget] || teacherSchedule[tId][dayTarget][pTarget] === cls.id)));
+                                      (tId === 'none' || (!isTeacherOff(tId, dayTarget, pTarget) && (!teacherSchedule[tId] || !teacherSchedule[tId][dayTarget] || !teacherSchedule[tId][dayTarget][pTarget] || teacherSchedule[tId][dayTarget][pTarget] === cls.id)));
 
                       if (canMove) {
                         // Move lesson
@@ -888,14 +889,14 @@ export function generateTimetable(
                   if (!isDouble) {
                     if (!isTeacherOff(tId, day, p) &&
                         !isSchoolOff(day, p) &&
-                        (!teacherSchedule[tId][day][p] || teacherSchedule[tId][day][p] === cls.id)) {
+                        (!teacherSchedule[tId] || !teacherSchedule[tId][day] || !teacherSchedule[tId][day][p] || teacherSchedule[tId][day][p] === cls.id)) {
                       
-                      if (teacherSchedule[tId] && teacherSchedule[tId][day][pNext] === cls.id) {
+                      if (teacherSchedule[tId] && teacherSchedule[tId][day] && teacherSchedule[tId][day][pNext] === cls.id) {
                         delete teacherSchedule[tId][day][pNext];
                       }
                       delete classSchedule[cls.id][day][pNext];
 
-                      if (tId && tId !== 'none' && teacherSchedule[tId]) {
+                      if (tId && tId !== 'none' && teacherSchedule[tId] && teacherSchedule[tId][day]) {
                         teacherSchedule[tId][day][p] = cls.id;
                       }
                       classSchedule[cls.id][day][p] = subId;
@@ -911,17 +912,17 @@ export function generateTimetable(
                       if (s2 && !s2.isExam) {
                         if (p + 1 < endP && (!classSchedule[cls.id][day][p + 1] || p + 1 === pNext)) {
                           const t2Id = s2.teacherId;
-                          const canMoveT1 = !isTeacherOff(tId, day, p) && !isSchoolOff(day, p) && (!teacherSchedule[tId][day][p] || teacherSchedule[tId][day][p] === cls.id);
-                          const canMoveT2 = !isTeacherOff(t2Id, day, p + 1) && !isSchoolOff(day, p + 1) && (!teacherSchedule[t2Id][day][p + 1] || teacherSchedule[t2Id][day][p + 1] === cls.id);
+                          const canMoveT1 = !isTeacherOff(tId, day, p) && !isSchoolOff(day, p) && (!teacherSchedule[tId] || !teacherSchedule[tId][day] || !teacherSchedule[tId][day][p] || teacherSchedule[tId][day][p] === cls.id);
+                          const canMoveT2 = !isTeacherOff(t2Id, day, p + 1) && !isSchoolOff(day, p + 1) && (!teacherSchedule[t2Id] || !teacherSchedule[t2Id][day] || !teacherSchedule[t2Id][day][p + 1] || teacherSchedule[t2Id][day][p + 1] === cls.id);
 
                           if (canMoveT1 && canMoveT2) {
-                            if (teacherSchedule[tId]) delete teacherSchedule[tId][day][pNext];
-                            if (teacherSchedule[t2Id]) delete teacherSchedule[t2Id][day][pNext + 1];
+                            if (teacherSchedule[tId] && teacherSchedule[tId][day]) delete teacherSchedule[tId][day][pNext];
+                            if (teacherSchedule[t2Id] && teacherSchedule[t2Id][day]) delete teacherSchedule[t2Id][day][pNext + 1];
                             delete classSchedule[cls.id][day][pNext];
                             delete classSchedule[cls.id][day][pNext + 1];
 
-                            if (teacherSchedule[tId]) teacherSchedule[tId][day][p] = cls.id;
-                            if (teacherSchedule[t2Id]) teacherSchedule[t2Id][day][p + 1] = cls.id;
+                            if (teacherSchedule[tId] && teacherSchedule[tId][day]) teacherSchedule[tId][day][p] = cls.id;
+                            if (teacherSchedule[t2Id] && teacherSchedule[t2Id][day]) teacherSchedule[t2Id][day][p + 1] = cls.id;
                             classSchedule[cls.id][day][p] = subId;
                             classSchedule[cls.id][day][p + 1] = subId;
 
