@@ -1,4 +1,4 @@
-import { Class, Subject, Teacher, Config, TimetableSlot } from './types';
+import { Class, Subject, Teacher, Config, TimetableSlot, getAssignmentDefaultLessons, getSubjectDefaultWeekType } from './types';
 
 export function getDailyPeriodsForClass(
   cls: Class,
@@ -131,15 +131,19 @@ export function generateTimetable(
           if (a.subjectId === sub.id && a.classIds.includes(cls.id)) {
             const alloc = a.classLessons?.[cls.id];
             const subTop = a.subTopics?.[cls.id];
-            const wType = a.weekTypes?.[cls.id] || 'all';
+            const wType = a.weekTypes?.[cls.id] || getSubjectDefaultWeekType(sub, cls.grade);
 
             if (currentWeekType === 'odd' && wType === 'even') continue;
             if (currentWeekType === 'even' && wType === 'odd') continue;
 
+            const finalLessons = alloc !== undefined && alloc !== null && alloc >= 0
+              ? alloc
+              : getAssignmentDefaultLessons(sub, cls.grade, wType, config);
+
             assignedTeacherInfos.push({
               teacher: t,
               assignment: a,
-              allocatedLessons: alloc !== undefined && alloc !== null ? alloc : -1,
+              allocatedLessons: finalLessons,
               subTopic: subTop,
               weekType: wType,
             });

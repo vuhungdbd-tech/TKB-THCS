@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Class, Subject, Teacher, Config } from '../types';
+import { Class, Subject, Teacher, Config, getAssignmentDefaultLessons, getSubjectDefaultWeekType } from '../types';
 import { SplitTeacherModal } from './SplitTeacherModal';
 import { 
   BookOpen, 
@@ -81,7 +81,7 @@ export default function ConfigTab({ classes, setClasses, subjects, setSubjects, 
         <div className="glass-card p-6 min-h-[600px] shadow-xl shadow-stone-200/50">
           {subTab === 'classes' && <ClassConfig classes={classes} setClasses={setClasses} config={config} setConfig={setConfig} />}
           {subTab === 'subjects' && <SubjectConfig subjects={subjects} setSubjects={setSubjects} />}
-          {subTab === 'teachers' && <TeacherConfig teachers={teachers} setTeachers={setTeachers} subjects={subjects} classes={classes} />}
+          {subTab === 'teachers' && <TeacherConfig teachers={teachers} setTeachers={setTeachers} subjects={subjects} classes={classes} config={config} />}
           {subTab === 'time' && <TimeConfig config={config} setConfig={setConfig} classes={classes} />}
           {subTab === 'exams' && <ExamConfigUI config={config} setConfig={setConfig} subjects={subjects} />}
         </div>
@@ -351,7 +351,7 @@ function SubjectConfig({ subjects, setSubjects }: { subjects: Subject[], setSubj
   );
 }
 
-function TeacherConfig({ teachers, setTeachers, subjects, classes }: { teachers: Teacher[], setTeachers: any, subjects: Subject[], classes: Class[] }) {
+function TeacherConfig({ teachers, setTeachers, subjects, classes, config }: { teachers: Teacher[], setTeachers: any, subjects: Subject[], classes: Class[], config: Config }) {
   const handleAddTeacher = () => {
     const newId = `t${Date.now()}`;
     setTeachers([...teachers, {
@@ -391,10 +391,10 @@ function TeacherConfig({ teachers, setTeachers, subjects, classes }: { teachers:
         const cls = classes.find(c => c.id === cId);
         if (!cls) return;
         const explicitLessons = a.classLessons?.[cId];
+        const weekType = a.weekTypes?.[cId] || getSubjectDefaultWeekType(sub, cls.grade);
         const lessonCount = explicitLessons !== undefined && explicitLessons >= 0 
           ? explicitLessons 
-          : (sub?.lessonsPerWeek || 0);
-        const weekType = a.weekTypes?.[cId] || 'all';
+          : getAssignmentDefaultLessons(sub, cls.grade, weekType, config);
         if (weekType === 'all') {
           computedNormal += lessonCount;
         } else {
@@ -630,8 +630,29 @@ function TeacherConfig({ teachers, setTeachers, subjects, classes }: { teachers:
                                   const newT = [...teachers];
                                   if (isSelected) {
                                     newT[idx].assignments[aIdx].classIds = newT[idx].assignments[aIdx].classIds.filter(id => id !== c.id);
+                                    if (newT[idx].assignments[aIdx].classLessons) {
+                                      delete newT[idx].assignments[aIdx].classLessons![c.id];
+                                    }
+                                    if (newT[idx].assignments[aIdx].weekTypes) {
+                                      delete newT[idx].assignments[aIdx].weekTypes![c.id];
+                                    }
                                   } else {
                                     newT[idx].assignments[aIdx].classIds.push(c.id);
+                                    const sub = subjects.find(s => s.id === assignment.subjectId);
+                                    if (sub) {
+                                      const defWeekType = getSubjectDefaultWeekType(sub, c.grade);
+                                      const defLessons = getAssignmentDefaultLessons(sub, c.grade, defWeekType, config);
+                                      
+                                      if (!newT[idx].assignments[aIdx].classLessons) {
+                                        newT[idx].assignments[aIdx].classLessons = {};
+                                      }
+                                      newT[idx].assignments[aIdx].classLessons![c.id] = defLessons;
+                                      
+                                      if (!newT[idx].assignments[aIdx].weekTypes) {
+                                        newT[idx].assignments[aIdx].weekTypes = {};
+                                      }
+                                      newT[idx].assignments[aIdx].weekTypes![c.id] = defWeekType;
+                                    }
                                   }
                                   setTeachers(newT);
                                 }}
@@ -735,6 +756,7 @@ function TeacherConfig({ teachers, setTeachers, subjects, classes }: { teachers:
         subjects={subjects}
         teachers={teachers}
         setTeachers={setTeachers}
+        config={config}
       />
     </div>
   );

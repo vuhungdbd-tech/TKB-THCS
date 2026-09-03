@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Class, Subject, Teacher } from '../types';
+import { Class, Subject, Teacher, Config, getAssignmentDefaultLessons, getSubjectDefaultWeekType } from '../types';
 import { Layers, Plus, Trash2, X, Sparkles, Copy, Check, Info } from 'lucide-react';
 
 interface Props {
@@ -9,6 +9,7 @@ interface Props {
   subjects: Subject[];
   teachers: Teacher[];
   setTeachers: React.Dispatch<React.SetStateAction<Teacher[]>>;
+  config: Config;
 }
 
 export const SplitTeacherModal: React.FC<Props> = ({
@@ -18,6 +19,7 @@ export const SplitTeacherModal: React.FC<Props> = ({
   subjects,
   teachers,
   setTeachers,
+  config,
 }) => {
   if (!isOpen) return null;
 
@@ -115,6 +117,10 @@ export const SplitTeacherModal: React.FC<Props> = ({
 
         // Check if teacher already has an assignment for this subject
         const existingIdx = t.assignments.findIndex(a => a.subjectId === selectedSubjectId);
+        const cls = classes.find(c => c.id === classId);
+        const defWeekType = cls && activeSubject ? getSubjectDefaultWeekType(activeSubject, cls.grade) : 'all';
+        const defLessons = cls && activeSubject ? getAssignmentDefaultLessons(activeSubject, cls.grade, defWeekType, config) : 1;
+
         if (existingIdx >= 0) {
           const newAssignments = [...t.assignments];
           if (!newAssignments[existingIdx].classIds.includes(classId)) {
@@ -122,6 +128,16 @@ export const SplitTeacherModal: React.FC<Props> = ({
               ...newAssignments[existingIdx],
               classIds: [...newAssignments[existingIdx].classIds, classId]
             };
+            
+            if (!newAssignments[existingIdx].classLessons) {
+              newAssignments[existingIdx].classLessons = {};
+            }
+            newAssignments[existingIdx].classLessons![classId] = defLessons;
+
+            if (!newAssignments[existingIdx].weekTypes) {
+              newAssignments[existingIdx].weekTypes = {};
+            }
+            newAssignments[existingIdx].weekTypes![classId] = defWeekType;
           }
           return { ...t, assignments: newAssignments };
         } else {
@@ -132,9 +148,9 @@ export const SplitTeacherModal: React.FC<Props> = ({
               {
                 subjectId: selectedSubjectId,
                 classIds: [classId],
-                classLessons: { [classId]: 1 },
+                classLessons: { [classId]: defLessons },
                 subTopics: { [classId]: '' },
-                weekTypes: { [classId]: 'all' }
+                weekTypes: { [classId]: defWeekType }
               }
             ]
           };
@@ -165,6 +181,11 @@ export const SplitTeacherModal: React.FC<Props> = ({
   // Preset: Auto-assign KHTN (Physics, Chemistry, Biology)
   const applyKHTNPreset = () => {
     if (!activeSubject) return;
+
+    // Try to find subjects for Physics, Chemistry, Biology
+    const phySub = subjects.find(s => s.name.toLowerCase().includes('lý') || s.name.toLowerCase().includes('vật lý'));
+    const chemSub = subjects.find(s => s.name.toLowerCase().includes('hóa') || s.name.toLowerCase().includes('hóa học'));
+    const bioSub = subjects.find(s => s.name.toLowerCase().includes('sinh') || s.name.toLowerCase().includes('sinh học'));
 
     // Try to find teachers specializing in Physics, Chemistry, Biology
     const phyTeacher = teachers.find(t => t.specialization?.toLowerCase().includes('lý') || t.name.toLowerCase().includes('lý')) || teachers[0];
@@ -202,16 +223,24 @@ export const SplitTeacherModal: React.FC<Props> = ({
             if (!classIds.includes(c.id)) classIds.push(c.id);
 
             if (isPhy) {
-              classLessons[c.id] = 1;
+              const defWeekType = phySub ? getSubjectDefaultWeekType(phySub, c.grade) : 'all';
+              const defLessons = phySub ? getAssignmentDefaultLessons(phySub, c.grade, defWeekType, config) : 1;
+              classLessons[c.id] = defLessons;
+              weekTypes[c.id] = defWeekType;
               subTopics[c.id] = 'Vật lý';
             } else if (isChem) {
-              classLessons[c.id] = 1;
+              const defWeekType = chemSub ? getSubjectDefaultWeekType(chemSub, c.grade) : 'all';
+              const defLessons = chemSub ? getAssignmentDefaultLessons(chemSub, c.grade, defWeekType, config) : 1;
+              classLessons[c.id] = defLessons;
+              weekTypes[c.id] = defWeekType;
               subTopics[c.id] = 'Hóa học';
             } else if (isBio) {
-              classLessons[c.id] = 2;
+              const defWeekType = bioSub ? getSubjectDefaultWeekType(bioSub, c.grade) : 'all';
+              const defLessons = bioSub ? getAssignmentDefaultLessons(bioSub, c.grade, defWeekType, config) : 2;
+              classLessons[c.id] = defLessons;
+              weekTypes[c.id] = defWeekType;
               subTopics[c.id] = 'Sinh học';
             }
-            weekTypes[c.id] = 'all';
           });
 
           newAssignments[aIdx] = {
@@ -226,12 +255,15 @@ export const SplitTeacherModal: React.FC<Props> = ({
       });
     });
 
-    triggerToast('Đã tự động phân công 3 Giáo viên (Lý: 1t, Hóa: 1t, Sinh: 2t) cho toàn bộ các lớp!');
+    triggerToast('Đã tự động phân công 3 Giáo viên (Lý, Hóa, Sinh) đồng bộ theo cấu hình tuần lẻ/chẵn của từng khối lớp!');
   };
 
   // Preset: Auto-assign History & Geography
   const applyLSDLPreset = () => {
     if (!activeSubject) return;
+
+    const hisSub = subjects.find(s => s.name.toLowerCase().includes('lịch sử') || s.name.toLowerCase().includes('sử'));
+    const geoSub = subjects.find(s => s.name.toLowerCase().includes('địa lý') || s.name.toLowerCase().includes('địa'));
 
     const hisTeacher = teachers.find(t => t.specialization?.toLowerCase().includes('sử') || t.name.toLowerCase().includes('sử')) || teachers[0];
     const geoTeacher = teachers.find(t => t.specialization?.toLowerCase().includes('địa') || t.name.toLowerCase().includes('địa')) || teachers[1] || teachers[0];
@@ -266,13 +298,18 @@ export const SplitTeacherModal: React.FC<Props> = ({
             if (!classIds.includes(c.id)) classIds.push(c.id);
 
             if (isHis) {
-              classLessons[c.id] = 2;
+              const defWeekType = hisSub ? getSubjectDefaultWeekType(hisSub, c.grade) : 'all';
+              const defLessons = hisSub ? getAssignmentDefaultLessons(hisSub, c.grade, defWeekType, config) : 2;
+              classLessons[c.id] = defLessons;
+              weekTypes[c.id] = defWeekType;
               subTopics[c.id] = 'Lịch sử';
             } else if (isGeo) {
-              classLessons[c.id] = 1;
+              const defWeekType = geoSub ? getSubjectDefaultWeekType(geoSub, c.grade) : 'all';
+              const defLessons = geoSub ? getAssignmentDefaultLessons(geoSub, c.grade, defWeekType, config) : 1;
+              classLessons[c.id] = defLessons;
+              weekTypes[c.id] = defWeekType;
               subTopics[c.id] = 'Địa lý';
             }
-            weekTypes[c.id] = 'all';
           });
 
           newAssignments[aIdx] = {
@@ -287,7 +324,7 @@ export const SplitTeacherModal: React.FC<Props> = ({
       });
     });
 
-    triggerToast('Đã tự động phân công 2 Giáo viên (Lịch sử: 2t, Địa lý: 1t) cho toàn bộ các lớp!');
+    triggerToast('Đã tự động phân công 2 Giáo viên (Sử, Địa) đồng bộ theo cấu hình tuần lẻ/chẵn của từng khối lớp!');
   };
 
   // Copy assignment from one class to all classes in the same grade
@@ -468,7 +505,7 @@ export const SplitTeacherModal: React.FC<Props> = ({
                   (sum, t) => sum + (t.allocatedLessons > 0 ? t.allocatedLessons : 0),
                   0
                 );
-                const targetLessons = activeSubject?.lessonsPerWeek || 0;
+                const targetLessons = getAssignmentDefaultLessons(activeSubject, cls.grade, 'all', config);
 
                 return (
                   <div
@@ -588,7 +625,11 @@ export const SplitTeacherModal: React.FC<Props> = ({
                                   type="number"
                                   min={1}
                                   max={10}
-                                  value={tInfo.allocatedLessons > 0 ? tInfo.allocatedLessons : 1}
+                                  value={
+                                    tInfo.allocatedLessons > 0 
+                                      ? tInfo.allocatedLessons 
+                                      : getAssignmentDefaultLessons(activeSubject, cls.grade, tInfo.weekType, config)
+                                  }
                                   onChange={e =>
                                     updateClassTeacherAssignment(
                                       cls.id,
@@ -608,14 +649,23 @@ export const SplitTeacherModal: React.FC<Props> = ({
                                 </label>
                                 <select
                                   value={tInfo.weekType}
-                                  onChange={e =>
+                                  onChange={e => {
+                                    const newWeekType = e.target.value as 'all' | 'odd' | 'even';
                                     updateClassTeacherAssignment(
                                       cls.id,
                                       tInfo.teacherId,
                                       'weekType',
-                                      e.target.value
-                                    )
-                                  }
+                                      newWeekType
+                                    );
+                                    // Automatically synchronize lessons to match the grade's specific week type config
+                                    const defaultL = getAssignmentDefaultLessons(activeSubject, cls.grade, newWeekType, config);
+                                    updateClassTeacherAssignment(
+                                      cls.id,
+                                      tInfo.teacherId,
+                                      'allocatedLessons',
+                                      defaultL
+                                    );
+                                  }}
                                   className="w-full bg-white border border-slate-200 rounded-md px-1.5 py-1 text-xs font-semibold text-slate-700 focus:ring-1 focus:ring-brand-500 outline-none"
                                 >
                                   <option value="all">Tất cả các tuần</option>

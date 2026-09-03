@@ -94,3 +94,52 @@ export interface AppState {
   timetable: TimetableSlot[];
   unassigned: any[];
 }
+
+export function getAssignmentDefaultLessons(
+  subject: Subject | undefined,
+  grade: number,
+  weekType: 'all' | 'odd' | 'even',
+  config: Config
+): number {
+  if (!subject) return 1;
+  if (subject.gradeConfigs && subject.gradeConfigs[grade]) {
+    const gConf = subject.gradeConfigs[grade];
+    
+    // If teacher is assigned specifically to odd week
+    if (weekType === 'odd' && gConf.oddWeek !== undefined && gConf.oddWeek !== null) {
+      const val = parseInt(gConf.oddWeek as any);
+      if (!isNaN(val)) return val;
+    }
+    
+    // If teacher is assigned specifically to even week
+    if (weekType === 'even' && gConf.evenWeek !== undefined && gConf.evenWeek !== null) {
+      const val = parseInt(gConf.evenWeek as any);
+      if (!isNaN(val)) return val;
+    }
+    
+    // Otherwise, check current term config
+    const currentTerm = config?.currentTerm || 'I';
+    const termConfig = currentTerm === 'I' ? gConf.term1 : gConf.term2;
+    if (termConfig !== undefined && termConfig !== null) {
+      const val = parseInt(termConfig as any);
+      if (!isNaN(val)) return val;
+    }
+  }
+  return subject.lessonsPerWeek || 0;
+}
+
+export function getSubjectDefaultWeekType(
+  subject: Subject | undefined,
+  grade: number
+): 'all' | 'odd' | 'even' {
+  if (!subject) return 'all';
+  if (subject.gradeConfigs && subject.gradeConfigs[grade]) {
+    const gConf = subject.gradeConfigs[grade];
+    const hasOdd = gConf.oddWeek !== undefined && gConf.oddWeek !== null && Number(gConf.oddWeek) > 0;
+    const hasEven = gConf.evenWeek !== undefined && gConf.evenWeek !== null && Number(gConf.evenWeek) > 0;
+    
+    if (hasOdd && !hasEven) return 'odd';
+    if (hasEven && !hasOdd) return 'even';
+  }
+  return 'all';
+}
