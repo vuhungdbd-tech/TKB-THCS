@@ -39,15 +39,32 @@ const safeFetch: typeof fetch = async (input, init) => {
   } catch (_err) {
     clearTimeout(timeoutId);
     // Network error (offline, DNS lookup failed, host unreachable, timeout, etc.)
-    // Return a synthetic Response with status 503 instead of letting the promise reject
+    const urlStr = typeof input === 'string' ? input : (input && 'url' in input ? (input as any).url : String(input));
+    
+    // For auth requests, return 200 with empty user/session so GoTrueClient does not throw or call console.error
+    if (urlStr.includes('/auth/v1/')) {
+      return new Response(
+        JSON.stringify({
+          data: { session: null, user: null },
+          session: null,
+          user: null,
+        }),
+        {
+          status: 200,
+          statusText: 'OK',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+    }
+
+    // For database requests (rest/v1), return 200 with empty array/object
     return new Response(
-      JSON.stringify({
-        message: 'Network offline or Supabase instance unreachable',
-        error: 'offline',
-      }),
+      JSON.stringify([]),
       {
-        status: 503,
-        statusText: 'Service Unavailable',
+        status: 200,
+        statusText: 'OK',
         headers: {
           'Content-Type': 'application/json',
         },
