@@ -1,0 +1,77 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Times New Roman", Times, serif;
+  --font-serif: "Times New Roman", Times, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-brand-50: #f0f7ff;
+  --color-brand-100: #e0effe;
+  --color-brand-200: #bae0fd;
+  --color-brand-300: #7cc8fb;
+  --color-brand-400: #38a9f8;
+  --color-brand-500: #0e8ce9;
+  --color-brand-600: #026ec7;
+  --color-brand-700: #0358a1;
+  --color-brand-800: #074b85;
+  --color-brand-900: #0c3f6e;
+  --color-brand-950: #082849;
+
+  /* Custom Eye-Friendly Colors */
+  --color-page-bg: #fdfdfb; /* Warm paper white to reduce glare */
+  --color-text-main: #1c1917; /* Stone 900 - warmer dark for better reading */
+  --color-text-muted: #57534e; /* Stone 600 - clearer than slate-400/500 */
+  --color-border-soft: #e7e5e4; /* Stone 200 */
+}
+
+@layer base {
+  body {
+    @apply bg-page-bg text-text-main antialiased font-sans;
+  }
+}
+
+.glass-card {
+  @apply bg-white/80 backdrop-blur-sm border border-border-soft shadow-sm rounded-xl;
+}
+
+.data-table {
+  @apply w-full border-separate border-spacing-0;
+}
+
+.data-table th {
+  @apply bg-stone-50/50 text-text-muted font-bold text-sm uppercase tracking-wider px-5 py-4 border-b border-border-soft first:rounded-tl-lg last:rounded-tr-lg;
+}
+
+.data-table td {
+  @apply px-5 py-4 border-b border-stone-100 text-lg transition-colors;
+}
+
+.data-table tr:last-child td {
+  @apply border-b-0;
+}
+
+.data-table tr:hover td {
+  @apply bg-stone-50/30;
+}
+
+.btn-primary {
+  @apply px-5 py-2.5 bg-brand-600 text-white rounded-lg font-bold shadow-sm hover:bg-brand-700 transition-all active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none text-lg;
+}
+
+.btn-secondary {
+  @apply px-5 py-2.5 bg-white text-text-main border border-border-soft rounded-lg font-bold shadow-sm hover:bg-stone-50 transition-all active:scale-[0.98] text-lg;
+}
+
+.input-field {
+  @apply w-full px-4 py-2.5 bg-white border border-border-soft rounded-lg text-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white !important;
+  }
+}

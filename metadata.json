@@ -1,0 +1,6 @@
+{
+  "name": "Ứng dụng sắp xếp TKB",
+  "description": "Ứng dụng sắp xếp và quản lý thời khóa biểu thông minh cho trường học",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
