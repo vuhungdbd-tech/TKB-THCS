@@ -695,7 +695,20 @@ export default function App() {
               <span className="hidden sm:inline">Đăng xuất</span>
             </button>
             <div className="w-px h-10 bg-stone-200 mx-1 sm:mx-2" />
-            <button onClick={handleGenerate} className="btn-primary flex items-center gap-2 py-3 px-6 sm:px-8 shadow-brand-500/25">
+            <label 
+              title="Khi bật: Tự động nới lỏng các ràng buộc trùng tiết (Tiếng Anh, Thể dục...), linh hoạt số tiết các buổi để lấp đầy 100% tiết mà không bị báo lỗi kín tiết"
+              className="flex items-center gap-2 px-3 py-2.5 bg-amber-50/90 hover:bg-amber-100/90 border border-amber-200 text-amber-950 rounded-xl cursor-pointer text-xs font-bold transition-all shadow-2xs select-none"
+            >
+              <input
+                type="checkbox"
+                checked={config.relaxConstraints ?? false}
+                onChange={(e) => setConfig({ ...config, relaxConstraints: e.target.checked })}
+                className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-amber-300 cursor-pointer"
+              />
+              <span className="hidden sm:inline whitespace-nowrap">Nới lỏng ràng buộc</span>
+              <span className="sm:hidden whitespace-nowrap">Nới lỏng</span>
+            </label>
+            <button onClick={() => handleGenerate()} className="btn-primary flex items-center gap-2 py-3 px-6 sm:px-8 shadow-brand-500/25">
               <Play className="w-5 h-5 sm:w-6 sm:h-6 fill-current" />
               <span>Tạo TKB</span>
             </button>

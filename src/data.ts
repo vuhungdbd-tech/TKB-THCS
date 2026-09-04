@@ -9,6 +9,7 @@ export const initialConfig: Config = {
   appSubtitle: 'ỨNG DỤNG SẮP XẾP THỜI KHÓA BIỂU',
   schoolYear: '2025 - 2026',
   executionDate: '23/03/2026',
+  relaxConstraints: true,
   timeOff: [
     { day: 0, session: 'afternoon' }, // Chiều Thứ 2 nghỉ
     { day: 1, session: 'afternoon' }, // Chiều Thứ 3 nghỉ

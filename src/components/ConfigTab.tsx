@@ -1220,22 +1220,14 @@ function DailyPeriodsConfigUI({ config, setConfig, classes, subjects, teachers }
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
-                onClick={handleAutoOptimizeDailyPeriods}
-                className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold rounded-lg shadow-sm transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
-                title="Tự động tính tổng số môn của từng lớp để phân bổ số tiết các buổi sáng chiều vừa khít 100%, không bị thừa hay trống tiết"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-                ⚡ Tự động tính theo môn từng lớp (Khớp 100%)
-              </button>
-              <button
                 onClick={() => applyPresetForAllGrades('school_29_lessons')}
-                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-lg shadow-xs transition-colors"
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-lg shadow-xs transition-colors cursor-pointer"
               >
                 Mẫu chuẩn 29 tiết (Sáng 4, Chiều T4-T6)
               </button>
               <button
                 onClick={() => applyPresetForAllGrades('morning_only')}
-                className="px-2.5 py-1.5 bg-white border border-amber-300 text-amber-900 font-bold rounded-lg hover:bg-amber-100 transition-colors"
+                className="px-2.5 py-1.5 bg-white border border-amber-300 text-amber-900 font-bold rounded-lg hover:bg-amber-100 transition-colors cursor-pointer"
               >
                 Chỉ học sáng (20 tiết)
               </button>
@@ -1488,6 +1480,20 @@ function TimeConfig({ config, setConfig, classes, subjects, teachers }: { config
                   className="input-field" 
                   placeholder="VD: HỆ THỐNG XẾP TKB THCS"
                 />
+              </div>
+              <div className="pt-2">
+                <label className="flex items-start gap-3 p-3 bg-amber-50/70 border border-amber-200 rounded-xl cursor-pointer hover:bg-amber-100/70 transition-colors">
+                  <input 
+                    type="checkbox" 
+                    checked={config.relaxConstraints || false} 
+                    onChange={(e) => setConfig({...config, relaxConstraints: e.target.checked})} 
+                    className="w-4 h-4 mt-0.5 rounded text-amber-600 focus:ring-amber-500 border-amber-300 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-amber-950 block">Nới lỏng ràng buộc khi xếp lịch</span>
+                    <span className="text-[11px] text-amber-800 block mt-0.5">Tự động nới lỏng các xung đột trùng môn cùng khối (Tiếng Anh, Thể dục...) và mở rộng số tiết linh hoạt để lấp đầy 100% tiết mà không bị báo lỗi kín tiết.</span>
+                  </div>
+                </label>
               </div>
             </div>
           </div>

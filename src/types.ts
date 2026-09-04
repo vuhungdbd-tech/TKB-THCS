@@ -85,6 +85,7 @@ export interface Config {
   gradeDailyPeriods?: Record<number, DailyPeriodLimit[]>; // grade -> day -> { morning, afternoon }
   classDailyPeriods?: Record<string, DailyPeriodLimit[]>; // classId -> day -> { morning, afternoon }
   fixedPeriods?: FixedPeriod[];
+  relaxConstraints?: boolean;
 }
 
 export interface TimetableSlot {

@@ -1087,7 +1087,7 @@ export function generateTimetable(
       return false;
     };
 
-    placed = tryPlace(false);
+    placed = tryPlace(config.relaxConstraints || false);
 
     if (!placed && lesson.isDouble) {
       lessons.push({ ...lesson, isDouble: false });
@@ -1221,8 +1221,16 @@ export function generateTimetable(
         if (isSchoolOff(d, p)) continue;
 
         const isMorning = p < config.morningLessons;
-        if (isMorning && p >= limits.morning) continue;
-        if (!isMorning && (p - config.morningLessons) >= limits.afternoon) continue;
+        let maxAllowed = isMorning ? limits.morning : limits.afternoon;
+        if (config.relaxConstraints) {
+          if (isMorning) {
+            maxAllowed = Math.min(config.morningLessons, Math.max(limits.morning, 4));
+          } else {
+            maxAllowed = limits.afternoon > 0 ? Math.min(config.afternoonLessons, limits.afternoon + 1) : 0;
+          }
+        }
+        if (isMorning && p >= maxAllowed) continue;
+        if (!isMorning && (p - config.morningLessons) >= maxAllowed) continue;
 
         // Slot already taken?
         if (classSchedule[cls.id][d][p]) continue;
