@@ -14,7 +14,9 @@ import {
   Moon,
   ChevronDown,
   Search,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Sparkles,
+  Wand2
 } from 'lucide-react';
 
 interface Props {
@@ -24,9 +26,10 @@ interface Props {
   subjects: Subject[];
   teachers: Teacher[];
   config: Config;
+  onAutoBalanceAndRegenerate?: () => void;
 }
 
-export default function ResultTab({ timetable, unassigned, classes, subjects, teachers, config }: Props) {
+export default function ResultTab({ timetable, unassigned, classes, subjects, teachers, config, onAutoBalanceAndRegenerate }: Props) {
   const [viewMode, setViewModeState] = useState<'class' | 'teacher' | 'master_morning' | 'master_afternoon'>(() => {
     const saved = localStorage.getItem('resultViewMode');
     return (['class', 'teacher', 'master_morning', 'master_afternoon'].includes(saved as any)) ? (saved as any) : 'master_morning';
@@ -471,6 +474,21 @@ export default function ResultTab({ timetable, unassigned, classes, subjects, te
                 </li>
               )}
             </ul>
+
+            <div className="mt-4 pt-3 border-t border-orange-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <p className="text-xs text-orange-950 font-semibold">
+                ⚡ Tự động khắc phục: Hệ thống có thể tự động tính toán lại số tiết các buổi sáng/chiều của từng lớp để khớp 100% số môn, giải quyết hoàn toàn lỗi thừa tiết hoặc trống tiết.
+              </p>
+              {onAutoBalanceAndRegenerate && (
+                <button
+                  onClick={onAutoBalanceAndRegenerate}
+                  className="px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-2 transition-all active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-200" />
+                  Tự động cấu hình lại số tiết &amp; Xếp lịch ngay
+                </button>
+              )}
+            </div>
           </div>
         )}
 

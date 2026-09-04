@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Class, Subject, Teacher, Config, getAssignmentDefaultLessons, getSubjectDefaultWeekType } from '../types';
+import { autoOptimizeClassDailyPeriods } from '../algorithm';
 import { SplitTeacherModal } from './SplitTeacherModal';
 import { 
   BookOpen, 
@@ -20,7 +21,9 @@ import {
   ChevronRight,
   Layers,
   Pin,
-  RefreshCw
+  RefreshCw,
+  Sparkles,
+  Wand2
 } from 'lucide-react';
 
 interface Props {
@@ -84,7 +87,7 @@ export default function ConfigTab({ classes, setClasses, subjects, setSubjects, 
           {subTab === 'classes' && <ClassConfig classes={classes} setClasses={setClasses} config={config} setConfig={setConfig} />}
           {subTab === 'subjects' && <SubjectConfig subjects={subjects} setSubjects={setSubjects} config={config} />}
           {subTab === 'teachers' && <TeacherConfig teachers={teachers} setTeachers={setTeachers} subjects={subjects} classes={classes} config={config} />}
-          {subTab === 'time' && <TimeConfig config={config} setConfig={setConfig} classes={classes} subjects={subjects} />}
+          {subTab === 'time' && <TimeConfig config={config} setConfig={setConfig} classes={classes} subjects={subjects} teachers={teachers} />}
           {subTab === 'exams' && <ExamConfigUI config={config} setConfig={setConfig} subjects={subjects} />}
         </div>
       </div>
@@ -1031,7 +1034,7 @@ function ClassConfig({ classes, setClasses, config, setConfig }: { classes: Clas
   );
 }
 
-function DailyPeriodsConfigUI({ config, setConfig, classes }: { config: Config; setConfig: any; classes: Class[] }) {
+function DailyPeriodsConfigUI({ config, setConfig, classes, subjects, teachers }: { config: Config; setConfig: any; classes: Class[]; subjects: Subject[]; teachers: Teacher[] }) {
   const [activeTab, setActiveTab] = useState<'grade' | 'class'>('grade');
   const [selectedClassId, setSelectedClassId] = useState<string>(classes[0]?.id || '');
 
@@ -1110,6 +1113,13 @@ function DailyPeriodsConfigUI({ config, setConfig, classes }: { config: Config; 
       });
     });
     setConfig({ ...config, gradeDailyPeriods: currentGrades, morningLessons: 4, afternoonLessons: 3 });
+  };
+
+  const handleAutoOptimizeDailyPeriods = () => {
+    const result = autoOptimizeClassDailyPeriods(classes, subjects, teachers, config);
+    setConfig(result.newConfig);
+    const count = result.adjustedSummary.length;
+    alert(`✅ Đã tự động tính toán và cấu hình lại số tiết các buổi cho ${classes.length} lớp học!\n\nĐã cân đối số tiết sáng/chiều dựa trên đúng tổng số môn của từng lớp, đảm bảo không lớp nào bị tràn (thừa tiết) hay thiếu (trống tiết).`);
   };
 
   const hasClassOverride = (classId: string) => {
@@ -1209,6 +1219,14 @@ function DailyPeriodsConfigUI({ config, setConfig, classes }: { config: Config; 
               <p className="text-amber-800 text-[11px] mt-0.5">Tự động cấu hình số tiết Sáng &amp; Chiều chuẩn 29 tiết/tuần theo đúng thời khóa biểu trường của bạn.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleAutoOptimizeDailyPeriods}
+                className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold rounded-lg shadow-sm transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                title="Tự động tính tổng số môn của từng lớp để phân bổ số tiết các buổi sáng chiều vừa khít 100%, không bị thừa hay trống tiết"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                ⚡ Tự động tính theo môn từng lớp (Khớp 100%)
+              </button>
               <button
                 onClick={() => applyPresetForAllGrades('school_29_lessons')}
                 className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-lg shadow-xs transition-colors"
@@ -1399,7 +1417,7 @@ function DailyPeriodsConfigUI({ config, setConfig, classes }: { config: Config; 
   );
 }
 
-function TimeConfig({ config, setConfig, classes, subjects }: { config: Config; setConfig: any; classes: Class[]; subjects: Subject[] }) {
+function TimeConfig({ config, setConfig, classes, subjects, teachers }: { config: Config; setConfig: any; classes: Class[]; subjects: Subject[]; teachers: Teacher[] }) {
   const fixedPeriods = config.fixedPeriods || [];
 
   const addFixedPeriod = () => {
@@ -1441,7 +1459,7 @@ function TimeConfig({ config, setConfig, classes, subjects }: { config: Config; 
         <p className="text-base text-text-muted mt-1.5">Thiết lập khung giờ học, quy định số tiết hàng ngày cho từng khối/lớp</p>
       </div>
 
-      <DailyPeriodsConfigUI config={config} setConfig={setConfig} classes={classes} />
+      <DailyPeriodsConfigUI config={config} setConfig={setConfig} classes={classes} subjects={subjects} teachers={teachers} />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
         <div className="space-y-6">

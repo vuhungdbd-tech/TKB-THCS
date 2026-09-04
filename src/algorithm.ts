@@ -1,4 +1,4 @@
-import { Class, Subject, Teacher, Config, TimetableSlot, getAssignmentDefaultLessons, getSubjectDefaultWeekType } from './types';
+import { Class, Subject, Teacher, Config, TimetableSlot, getAssignmentDefaultLessons, getSubjectDefaultWeekType, DailyPeriodLimit } from './types';
 
 export function getDailyPeriodsForClass(
   cls: Class,
@@ -25,6 +25,268 @@ export function getDailyPeriodsForClass(
   };
 }
 
+export function calculateClassRequiredLessons(
+  classes: Class[],
+  subjects: Subject[],
+  teachers: Teacher[],
+  config: Config
+): Record<string, number> {
+  const currentTerm = config.currentTerm || 'I';
+  const currentWeekType = config.currentWeekType || 'all';
+
+  const getSubjectLessons = (subject: Subject, grade: number): number => {
+    if (subject.gradeConfigs && subject.gradeConfigs[grade]) {
+      const gConf = subject.gradeConfigs[grade];
+      if (currentWeekType === 'custom' && gConf.customWeek !== undefined && gConf.customWeek !== null && gConf.customWeek >= 0) {
+        return gConf.customWeek;
+      }
+      if (currentWeekType === 'odd' && gConf.oddWeek !== undefined && gConf.oddWeek !== null && gConf.oddWeek >= 0) {
+        return gConf.oddWeek;
+      }
+      if (currentWeekType === 'even' && gConf.evenWeek !== undefined && gConf.evenWeek !== null && gConf.evenWeek >= 0) {
+        return gConf.evenWeek;
+      }
+      const termConfig = currentTerm === 'I' ? gConf.term1 : gConf.term2;
+      if (termConfig !== undefined && termConfig !== null) return termConfig;
+    }
+    return subject.lessonsPerWeek || 0;
+  };
+
+  const req: Record<string, number> = {};
+
+  for (const cls of classes) {
+    let total = 0;
+    for (const sub of subjects) {
+      const clsLessonsPerWeek = getSubjectLessons(sub, cls.grade);
+      if (clsLessonsPerWeek <= 0) continue;
+
+      const assignedTeacherInfos: Array<{ allocatedLessons: number }> = [];
+
+      for (const t of teachers) {
+        for (const a of t.assignments) {
+          if (a.subjectId === sub.id && a.classIds.includes(cls.id)) {
+            const alloc = a.classLessons?.[cls.id];
+            const wType = a.weekTypes?.[cls.id] || getSubjectDefaultWeekType(sub, cls.grade);
+
+            if (currentWeekType === 'odd' && wType === 'even') continue;
+            if (currentWeekType === 'even' && wType === 'odd') continue;
+
+            const finalLessons = alloc !== undefined && alloc !== null && alloc >= 0
+              ? alloc
+              : getAssignmentDefaultLessons(sub, cls.grade, wType, config);
+
+            assignedTeacherInfos.push({ allocatedLessons: finalLessons });
+          }
+        }
+      }
+
+      if (assignedTeacherInfos.length === 0) {
+        total += clsLessonsPerWeek;
+      } else {
+        let totalExplicit = 0;
+        let unassignedTeachersCount = 0;
+        assignedTeacherInfos.forEach(info => {
+          if (info.allocatedLessons >= 0) {
+            totalExplicit += info.allocatedLessons;
+          } else {
+            unassignedTeachersCount++;
+          }
+        });
+
+        let defaultPerTeacher = 0;
+        if (unassignedTeachersCount > 0) {
+          const remainingLessons = Math.max(0, clsLessonsPerWeek - totalExplicit);
+          defaultPerTeacher = Math.floor(remainingLessons / unassignedTeachersCount);
+        }
+
+        const counts = assignedTeacherInfos.map(info => info.allocatedLessons >= 0 ? info.allocatedLessons : defaultPerTeacher);
+        total += counts.reduce((a, b) => a + b, 0);
+      }
+    }
+    req[cls.id] = total;
+  }
+  return req;
+}
+
+export interface AutoOptimizeResult {
+  newConfig: Config;
+  classRequiredLessons: Record<string, number>;
+  adjustedSummary: {
+    classId: string;
+    className: string;
+    grade: number;
+    required: number;
+    oldCapacity: number;
+    newCapacity: number;
+  }[];
+}
+
+export function autoOptimizeClassDailyPeriods(
+  classes: Class[],
+  subjects: Subject[],
+  teachers: Teacher[],
+  config: Config
+): AutoOptimizeResult {
+  const req = calculateClassRequiredLessons(classes, subjects, teachers, config);
+  const numDays = config.days || 6;
+  const daysList = Array.from({ length: numDays }, (_, i) => i);
+
+  const isSchoolOff = (day: number, session: 'morning' | 'afternoon'): boolean => {
+    if (!config.timeOff) return false;
+    return config.timeOff.some(off => off.day === day && (off.session === 'all' || off.session === session));
+  };
+
+  const newClassDailyPeriods: Record<string, DailyPeriodLimit[]> = { ...(config.classDailyPeriods || {}) };
+  const newGradeDailyPeriods: Record<number, DailyPeriodLimit[]> = { ...(config.gradeDailyPeriods || {}) };
+
+  let maxMorningFound = Math.max(config.morningLessons || 5, 5);
+  let maxAfternoonFound = Math.max(config.afternoonLessons || 3, 3);
+
+  const adjustedSummary: AutoOptimizeResult['adjustedSummary'] = [];
+
+  const grades = Array.from(new Set(classes.map(c => c.grade))).sort();
+
+  for (const grade of grades) {
+    const gradeClasses = classes.filter(c => c.grade === grade);
+    if (gradeClasses.length === 0) continue;
+
+    const reqs = gradeClasses.map(c => req[c.id] || 0);
+    const maxReq = Math.max(...reqs, 0);
+
+    const calculateSchedule = (targetLessons: number): DailyPeriodLimit[] => {
+      const openMorningDays = daysList.filter(d => !isSchoolOff(d, 'morning'));
+      const openAfternoonDays = daysList.filter(d => !isSchoolOff(d, 'afternoon') && d !== 5);
+
+      const schedule: DailyPeriodLimit[] = daysList.map(() => ({ morning: 0, afternoon: 0 }));
+      if (targetLessons <= 0) return schedule;
+
+      // Check if Saturday morning is open
+      const hasSaturdayMorning = openMorningDays.includes(5);
+      const weekdayMornings = openMorningDays.filter(d => d !== 5);
+
+      // Strategy 1: If can fit entirely in mornings with 4 periods:
+      if (targetLessons <= openMorningDays.length * 4) {
+        let rem = targetLessons;
+        for (const d of openMorningDays) {
+          if (rem <= 0) break;
+          const alloc = Math.min(4, rem);
+          schedule[d].morning = alloc;
+          rem -= alloc;
+        }
+        return schedule;
+      }
+
+      // Strategy 2: If can fit entirely in mornings with up to 5 periods:
+      if (targetLessons <= (weekdayMornings.length * 5 + (hasSaturdayMorning ? 4 : 0))) {
+        // First allocate 4 to all open mornings
+        let rem = targetLessons;
+        for (const d of openMorningDays) {
+          schedule[d].morning = 4;
+          rem -= 4;
+        }
+        // Distribute extra 5th period to weekday mornings
+        for (const d of weekdayMornings) {
+          if (rem <= 0) break;
+          schedule[d].morning = 5;
+          rem--;
+        }
+        return schedule;
+      }
+
+      // Strategy 3: Target lessons > morning capacity (e.g. 26 to 32 lessons)
+      // Max out weekday mornings to 5 periods, and Saturday morning to 4 (if open)
+      let morningTotal = 0;
+      for (const d of weekdayMornings) {
+        schedule[d].morning = 5;
+        morningTotal += 5;
+      }
+      if (hasSaturdayMorning) {
+        schedule[5].morning = 4;
+        morningTotal += 4;
+      }
+
+      let remainingAfternoon = targetLessons - morningTotal;
+
+      // Preferred afternoons: T3 (1), T5 (3), T4 (2), T6 (4), T2 (0)
+      const preferredAfternoonOrder = [1, 3, 2, 4, 0].filter(d => openAfternoonDays.includes(d));
+
+      for (const d of preferredAfternoonOrder) {
+        if (remainingAfternoon <= 0) break;
+        const alloc = Math.min(3, remainingAfternoon);
+        schedule[d].afternoon = alloc;
+        remainingAfternoon -= alloc;
+      }
+
+      if (remainingAfternoon > 0) {
+        for (const d of preferredAfternoonOrder) {
+          if (remainingAfternoon <= 0) break;
+          if (schedule[d].afternoon < 4) {
+            const add = Math.min(4 - schedule[d].afternoon, remainingAfternoon);
+            schedule[d].afternoon += add;
+            remainingAfternoon -= add;
+          }
+        }
+      }
+
+      return schedule;
+    };
+
+    const gradeSchedule = calculateSchedule(maxReq);
+    newGradeDailyPeriods[grade] = gradeSchedule;
+
+    for (const cls of gradeClasses) {
+      const clsReq = req[cls.id] || 0;
+      let oldCap = 0;
+      for (let d = 0; d < numDays; d++) {
+        const lim = getDailyPeriodsForClass(cls, d, config);
+        if (!isSchoolOff(d, 'morning')) oldCap += lim.morning;
+        if (!isSchoolOff(d, 'afternoon')) oldCap += lim.afternoon;
+      }
+
+      let clsSchedule: DailyPeriodLimit[];
+      if (clsReq === maxReq) {
+        clsSchedule = gradeSchedule;
+        delete newClassDailyPeriods[cls.id];
+      } else {
+        clsSchedule = calculateSchedule(clsReq);
+        newClassDailyPeriods[cls.id] = clsSchedule;
+      }
+
+      let newCap = 0;
+      for (let d = 0; d < numDays; d++) {
+        newCap += clsSchedule[d].morning + clsSchedule[d].afternoon;
+        if (clsSchedule[d].morning > maxMorningFound) maxMorningFound = clsSchedule[d].morning;
+        if (clsSchedule[d].afternoon > maxAfternoonFound) maxAfternoonFound = clsSchedule[d].afternoon;
+      }
+
+      if (oldCap !== newCap || oldCap < clsReq) {
+        adjustedSummary.push({
+          classId: cls.id,
+          className: cls.name,
+          grade: cls.grade,
+          required: clsReq,
+          oldCapacity: oldCap,
+          newCapacity: newCap,
+        });
+      }
+    }
+  }
+
+  const newConfig: Config = {
+    ...config,
+    classDailyPeriods: newClassDailyPeriods,
+    gradeDailyPeriods: newGradeDailyPeriods,
+    morningLessons: Math.max(5, maxMorningFound),
+    afternoonLessons: Math.max(3, maxAfternoonFound),
+  };
+
+  return {
+    newConfig,
+    classRequiredLessons: req,
+    adjustedSummary,
+  };
+}
+
 export interface LessonToSchedule {
   classId: string;
   subjectId: string;
@@ -42,7 +304,39 @@ export function generateTimetable(
   subjects: Subject[],
   teachers: Teacher[],
   config: Config
-): { slots: TimetableSlot[], unassigned: LessonToSchedule[] } {
+): { slots: TimetableSlot[], unassigned: LessonToSchedule[], autoAdjustedConfig?: Config } {
+  // 0. Auto-check and optimize class daily periods if capacity is mismatched
+  const classReq = calculateClassRequiredLessons(classes, subjects, teachers, config);
+  const numDays = config.days || 6;
+  let hasCapacityDeficit = false;
+
+  for (const cls of classes) {
+    const required = classReq[cls.id] || 0;
+    let cap = 0;
+    for (let d = 0; d < numDays; d++) {
+      const isMOff = config.timeOff?.some(off => off.day === d && (off.session === 'all' || off.session === 'morning'));
+      const isAOff = config.timeOff?.some(off => off.day === d && (off.session === 'all' || off.session === 'afternoon'));
+      const lim = getDailyPeriodsForClass(cls, d, config);
+      if (!isMOff) cap += lim.morning;
+      if (!isAOff) cap += lim.afternoon;
+    }
+    if (cap < required) {
+      hasCapacityDeficit = true;
+      break;
+    }
+  }
+
+  let effectiveConfig = config;
+  let autoAdjustedConfig: Config | undefined = undefined;
+
+  if (hasCapacityDeficit) {
+    const opt = autoOptimizeClassDailyPeriods(classes, subjects, teachers, config);
+    effectiveConfig = opt.newConfig;
+    autoAdjustedConfig = opt.newConfig;
+  }
+
+  config = effectiveConfig;
+
   const slots: TimetableSlot[] = [];
   const unassigned: LessonToSchedule[] = [];
   const totalPeriods = config.morningLessons + config.afternoonLessons;
@@ -1112,6 +1406,6 @@ export function generateTimetable(
     if (!shiftedAny) break;
   }
 
-  return { slots, unassigned };
+  return { slots, unassigned, autoAdjustedConfig };
 }
 

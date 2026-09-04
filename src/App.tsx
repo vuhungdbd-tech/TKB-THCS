@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { initialClasses, initialSubjects, initialTeachers, initialConfig } from './data';
 import { Class, Subject, Teacher, Config, TimetableSlot } from './types';
-import { generateTimetable, LessonToSchedule } from './algorithm';
+import { generateTimetable, autoOptimizeClassDailyPeriods, LessonToSchedule } from './algorithm';
 import ConfigTab from './components/ConfigTab';
 import ResultTab from './components/ResultTab';
 import LicenseManager from './components/LicenseManager';
@@ -488,8 +488,15 @@ export default function App() {
     }
   };
 
-  const handleGenerate = () => {
-    const { slots, unassigned } = generateTimetable(classes, subjects, teachers, config);
+  const handleGenerate = (customConfig?: Config) => {
+    const activeConfig = customConfig || config;
+    const { slots, unassigned, autoAdjustedConfig } = generateTimetable(classes, subjects, teachers, activeConfig);
+    const finalConfig = autoAdjustedConfig || activeConfig;
+
+    if (autoAdjustedConfig) {
+      setConfig(autoAdjustedConfig);
+    }
+
     const updatedWeekly = {
       ...weeklyTimetables,
       [currentWeek]: { timetable: slots, unassigned }
@@ -499,7 +506,7 @@ export default function App() {
 
     // Trigger immediate sync to Supabase when new timetable is generated
     if (session && supabase) {
-      const dataToSave = { classes, subjects, teachers, config, weeklyTimetables: updatedWeekly, currentWeek };
+      const dataToSave = { classes, subjects, teachers, config: finalConfig, weeklyTimetables: updatedWeekly, currentWeek };
       supabase.from('app_data').upsert({
         id: session.user.id,
         data: dataToSave,
@@ -511,6 +518,12 @@ export default function App() {
         }
       }).catch(() => {});
     }
+  };
+
+  const handleAutoBalanceAndGenerate = () => {
+    const opt = autoOptimizeClassDailyPeriods(classes, subjects, teachers, config);
+    setConfig(opt.newConfig);
+    handleGenerate(opt.newConfig);
   };
 
   const handleReset = async () => {
@@ -758,6 +771,7 @@ export default function App() {
                 subjects={subjects} 
                 teachers={teachers} 
                 config={config} 
+                onAutoBalanceAndRegenerate={handleAutoBalanceAndGenerate}
               />
             ) : (
               <LicenseManager />
