@@ -246,18 +246,29 @@ export function generateTimetable(
     }
   }
 
-  // Sort lessons: Exams first, then Main, integrated, sub. Heavy teachers & double lessons first.
+  // Sort lessons: Exams first, then heavy teachers, then double lessons, then type
   lessons.sort((a, b) => {
     if (a.isExam && !b.isExam) return -1;
     if (!a.isExam && b.isExam) return 1;
+
+    const loadA = teacherLoad[a.teacherId] || 0;
+    const loadB = teacherLoad[b.teacherId] || 0;
+    
+    // Extremely busy teachers (>= 20 lessons) MUST be scheduled first to avoid conflicts
+    if (loadA >= 20 || loadB >= 20) {
+      if (loadA !== loadB) return loadB - loadA;
+    }
+
+    // Sort by teacher load first. Only group by type if load difference is small
+    if (Math.abs(loadB - loadA) > 2) {
+       return loadB - loadA;
+    }
 
     const typeOrder = { main: 0, integrated: 1, sub: 2 };
     if (typeOrder[a.type as keyof typeof typeOrder] !== typeOrder[b.type as keyof typeof typeOrder]) {
       return typeOrder[a.type as keyof typeof typeOrder] - typeOrder[b.type as keyof typeof typeOrder];
     }
     
-    const loadA = teacherLoad[a.teacherId] || 0;
-    const loadB = teacherLoad[b.teacherId] || 0;
     if (loadA !== loadB) return loadB - loadA;
 
     if (a.isDouble && !b.isDouble) return -1;
@@ -422,7 +433,7 @@ export function generateTimetable(
     if (lesson.session === 'afternoon' && period < config.morningLessons) return { valid: false, reason: 'Sai buổi học' };
 
     // Daily periods limit check for class
-    if (cls) {
+    if (cls && !relaxConstraints) {
       const limits = getDailyPeriodsForClass(cls, day, config);
       const isMorning = period < config.morningLessons;
       if (isMorning) {
@@ -661,7 +672,7 @@ export function generateTimetable(
           if (result.valid) {
             const isMorning = period < config.morningLessons;
             const targetCapacity = isMorning ? limits.morning : limits.afternoon;
-            if (targetCapacity <= 0) continue;
+            if (targetCapacity <= 0 && !relaxConstraints) continue;
 
             // Count existing lessons on this session for the class
             const sessionStart = isMorning ? 0 : config.morningLessons;
