@@ -1,0 +1,35 @@
+--- src/components/ResultTab.tsx
++++ src/components/ResultTab.tsx
+@@ -440,6 +440,32 @@
+ 
+         {/* Unassigned List Table */}
+         {unassigned.length > 0 && (
++          <div className="bg-orange-50 border border-orange-200 rounded-2xl p-5 mb-4 shadow-sm">
++            <h3 className="font-bold text-orange-900 text-sm flex items-center gap-2 mb-3">
++              <span className="bg-orange-200 text-orange-800 p-1 rounded-md">💡</span>
++              Hệ thống Gợi ý Khắc phục Lỗi
++            </h3>
++            <ul className="space-y-2 text-sm text-orange-800">
++              {unassigned.some(u => (u.reason || '').includes('kín tiết trong các buổi mở')) && (
++                <li className="flex gap-2">
++                  <span className="font-bold shrink-0">&bull;</span>
++                  <span><strong>Lỗi "Lớp đã kín tiết":</strong> Lớp học đang được phân công số tiết lớn hơn sức chứa của các buổi học đang mở. <strong>Cách sửa:</strong> Vào tab <em>Thời gian</em>, hãy tăng số <em>Max tiết/buổi sáng</em> lên (ví dụ từ 4 lên 5), hoặc mở thêm 1-2 tiết học vào buổi chiều cho khối lớp đó.</span>
++                </li>
++              )}
++              {unassigned.some(u => (u.reason || '').includes('Giáo viên') && (u.reason || '').includes('trùng lịch')) && (
++                <li className="flex gap-2">
++                  <span className="font-bold shrink-0">&bull;</span>
++                  <span><strong>Lỗi "Giáo viên trùng lịch":</strong> Giáo viên dạy quá nhiều lớp hoặc các lớp có lịch trống trùng nhau. <strong>Cách sửa:</strong> Hãy thử tích chọn ô <strong>"Nới lỏng ràng buộc"</strong> (Relax Constraints) trước khi bấm Xếp lịch, hoặc tăng <em>Max tiết/buổi</em> của giáo viên này trong tab <em>Giáo viên</em>.</span>
++                </li>
++              )}
++              {unassigned.some(u => (u.reason || '').includes('Vượt định mức')) && (
++                <li className="flex gap-2">
++                  <span className="font-bold shrink-0">&bull;</span>
++                  <span><strong>Lỗi "Vượt định mức tiết/buổi":</strong> Giáo viên bị giới hạn số tiết dạy tối đa trong 1 buổi quá thấp. <strong>Cách sửa:</strong> Vào tab <em>Giáo viên</em>, tăng ô <em>Max tiết/buổi</em> của giáo viên này lên (ví dụ từ 3 lên 4 hoặc 5).</span>
++                </li>
++              )}
++            </ul>
++          </div>
++        )}
++        {unassigned.length > 0 && (
+           <div className="bg-white border border-rose-200 rounded-2xl overflow-hidden shadow-sm">

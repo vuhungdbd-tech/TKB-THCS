@@ -440,6 +440,41 @@ export default function ResultTab({ timetable, unassigned, classes, subjects, te
 
         {/* Unassigned List Table */}
         {unassigned.length > 0 && (
+          <div className="bg-orange-50 border border-orange-200 rounded-2xl p-5 mb-4 shadow-sm">
+            <h3 className="font-bold text-orange-900 text-sm flex items-center gap-2 mb-3">
+              <span className="bg-orange-200 text-orange-800 px-2 py-0.5 rounded-md text-xs">💡 AI</span>
+              Gợi ý Khắc phục Lỗi Tự động
+            </h3>
+            <ul className="space-y-3 text-sm text-orange-800">
+              {unassigned.some(u => (u.reason || '').includes('kín tiết trong các buổi mở')) && (
+                <li className="flex gap-2">
+                  <span className="font-bold shrink-0 mt-0.5">&bull;</span>
+                  <span><strong>Lỗi "Lớp đã kín tiết":</strong> Lớp học đang được phân công tổng số môn nhiều hơn sức chứa của các buổi học đang mở. <strong>Cách sửa:</strong> Vào tab <em>Thời gian</em>, hãy tăng <em>Max tiết/buổi sáng</em> lên (ví dụ từ 4 lên 5), hoặc mở thêm 1-2 tiết học vào buổi chiều cho khối lớp đó để có không gian xếp lịch.</span>
+                </li>
+              )}
+              {unassigned.some(u => (u.reason || '').includes('Giáo viên') && (u.reason || '').includes('trùng lịch')) && (
+                <li className="flex gap-2">
+                  <span className="font-bold shrink-0 mt-0.5">&bull;</span>
+                  <span><strong>Lỗi "Giáo viên trùng lịch":</strong> Giáo viên bị kẹt do dạy quá nhiều lớp hoặc không tìm được điểm giao nhau của thời gian rảnh. <strong>Cách sửa:</strong> Hãy tích chọn ô <strong>"Nới lỏng ràng buộc"</strong> trước khi bấm Xếp lịch, hoặc nới rộng <em>Max tiết/buổi</em> của giáo viên này trong tab <em>Giáo viên</em>.</span>
+                </li>
+              )}
+              {unassigned.some(u => (u.reason || '').includes('Vượt định mức tiết')) && (
+                <li className="flex gap-2">
+                  <span className="font-bold shrink-0 mt-0.5">&bull;</span>
+                  <span><strong>Lỗi "Vượt định mức tiết/buổi":</strong> Thuật toán bị nghẽn do giới hạn số tiết dạy tối đa trong 1 buổi của giáo viên quá thấp. <strong>Cách sửa:</strong> Vào tab <em>Giáo viên</em>, tăng ô <em>Max tiết/buổi</em> của giáo viên này lên (ví dụ từ 3 lên 4 hoặc 5).</span>
+                </li>
+              )}
+              {unassigned.some(u => (u.reason || '').includes('Chưa phân công') || (u.reason || '').includes('định mức')) && (
+                <li className="flex gap-2">
+                  <span className="font-bold shrink-0 mt-0.5">&bull;</span>
+                  <span><strong>Lỗi "Chưa phân công đủ tiết":</strong> Số tiết của môn học được cấu hình cao hơn số tiết mà giáo viên đang được giao dạy thực tế. <strong>Cách sửa:</strong> Vào tab <em>Giáo viên</em>, kiểm tra lại số ô phân công của môn học này xem đã điền đủ số chưa.</span>
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
+
+        {unassigned.length > 0 && (
           <div className="bg-white border border-rose-200 rounded-2xl overflow-hidden shadow-sm">
             <div className="px-6 py-4 bg-rose-50/50 border-b border-rose-200 flex items-center justify-between">
               <h3 className="font-bold text-rose-900 text-sm flex items-center gap-2">
