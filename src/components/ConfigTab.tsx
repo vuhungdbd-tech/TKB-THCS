@@ -19,7 +19,8 @@ import {
   CalendarDays,
   ChevronRight,
   Layers,
-  Pin
+  Pin,
+  RefreshCw
 } from 'lucide-react';
 
 interface Props {
@@ -523,8 +524,8 @@ function TeacherConfig({ teachers, setTeachers, subjects, classes, config }: { t
   // Overall school-wide teacher stats
   const totalSchoolStats = teachers.reduce((acc, t) => {
     const { computedNormal, computedExtra } = getTeacherAssignedLessons(t);
-    const norm = t.normalLessons !== undefined ? t.normalLessons : computedNormal;
-    const ext = t.extraLessons !== undefined ? t.extraLessons : computedExtra;
+    const norm = (t.normalLessons !== undefined && t.normalLessons !== 0) ? t.normalLessons : computedNormal;
+    const ext = (t.extraLessons !== undefined && t.extraLessons !== 0) ? t.extraLessons : computedExtra;
     return {
       normal: acc.normal + norm,
       extra: acc.extra + ext,
@@ -576,8 +577,8 @@ function TeacherConfig({ teachers, setTeachers, subjects, classes, config }: { t
       <div className="grid grid-cols-1 gap-4">
         {teachers.map((t, idx) => {
           const { computedNormal, computedExtra, totalComputed } = getTeacherAssignedLessons(t);
-          const activeNormal = t.normalLessons !== undefined ? t.normalLessons : computedNormal;
-          const activeExtra = t.extraLessons !== undefined ? t.extraLessons : computedExtra;
+          const activeNormal = (t.normalLessons !== undefined && t.normalLessons !== 0) ? t.normalLessons : computedNormal;
+          const activeExtra = (t.extraLessons !== undefined && t.extraLessons !== 0) ? t.extraLessons : computedExtra;
 
           return (
             <div key={t.id} className="p-6 bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-brand-300 transition-all group">
@@ -609,45 +610,89 @@ function TeacherConfig({ teachers, setTeachers, subjects, classes, config }: { t
                   </div>
 
                   {/* Workload breakdown: Normal vs Supplementary/Extra */}
-                  <div className="p-4 bg-stone-50 rounded-2xl border border-stone-200/80 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-700">Tải dạy hiện tại:</span>
-                      <span className="px-2.5 py-0.5 bg-brand-100 text-brand-800 rounded-full text-xs font-black">
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+                    <div className="flex items-center justify-between pb-1 border-b border-slate-200/50">
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tải dạy hiện tại:</span>
+                      <span className="px-3 py-1 bg-brand-50 text-brand-700 border border-brand-100 rounded-full text-xs font-black shadow-sm">
                         {totalComputed} tiết phân công
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      {/* Normal Lessons */}
-                      <div className="p-2.5 bg-white rounded-xl border border-slate-200">
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Tiết bình thường</label>
-                          <span className="text-[10px] font-bold text-slate-400" title="Số tiết phân công thực tế từ các lớp">(Thực dạy: {computedNormal})</span>
+                    <div className="space-y-2.5">
+                      {/* Normal Lessons Row */}
+                      <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200 hover:border-emerald-200 transition-colors shadow-sm">
+                        <div className="flex flex-col min-w-0 pr-2">
+                          <span className="text-[11px] font-extrabold text-emerald-800 uppercase tracking-wider flex items-center gap-1.5">
+                            <span className="w-2 h-2 bg-emerald-500 rounded-full inline-block animate-pulse"></span>
+                            Tiết bình thường
+                          </span>
+                          <span className="text-[11px] text-slate-500 mt-1 font-medium whitespace-nowrap">
+                            Thực dạy: <strong className="text-emerald-600 font-bold font-mono">{computedNormal}</strong> tiết
+                          </span>
                         </div>
-                        <input 
-                          type="number" 
-                          min={0}
-                          value={activeNormal} 
-                          onChange={(e) => updateTeacher(idx, 'normalLessons', parseInt(e.target.value) || 0)} 
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-mono font-extrabold text-sm text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500" 
-                          placeholder="Bình thường"
-                        />
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <input 
+                            type="number" 
+                            min={0}
+                            value={activeNormal} 
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value);
+                              updateTeacher(idx, 'normalLessons', isNaN(val) ? 0 : val);
+                            }} 
+                            className="w-14 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-lg px-1.5 py-1 text-center font-mono font-black text-sm text-emerald-800 outline-none transition-all" 
+                            title="Số tiết tiêu chuẩn được cấu hình"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newT = [...teachers];
+                              newT[idx].normalLessons = computedNormal;
+                              setTeachers(newT);
+                            }}
+                            title="Đồng bộ với số tiết thực dạy"
+                            className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Extra / Supplementary Lessons */}
-                      <div className="p-2.5 bg-white rounded-xl border border-slate-200">
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Tiết bổ sung</label>
-                          <span className="text-[10px] font-bold text-slate-400" title="Số tiết dạy tuần lẻ/chẵn/tăng cường">(Thực dạy: {computedExtra})</span>
+                      {/* Extra / Supplementary Lessons Row */}
+                      <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200 hover:border-amber-200 transition-colors shadow-sm">
+                        <div className="flex flex-col min-w-0 pr-2">
+                          <span className="text-[11px] font-extrabold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+                            <span className="w-2 h-2 bg-amber-500 rounded-full inline-block"></span>
+                            Tiết bổ sung
+                          </span>
+                          <span className="text-[11px] text-slate-500 mt-1 font-medium whitespace-nowrap">
+                            Thực dạy: <strong className="text-amber-600 font-bold font-mono">{computedExtra}</strong> tiết
+                          </span>
                         </div>
-                        <input 
-                          type="number" 
-                          min={0}
-                          value={activeExtra} 
-                          onChange={(e) => updateTeacher(idx, 'extraLessons', parseInt(e.target.value) || 0)} 
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-mono font-extrabold text-sm text-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-500" 
-                          placeholder="Bổ sung"
-                        />
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <input 
+                            type="number" 
+                            min={0}
+                            value={activeExtra} 
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value);
+                              updateTeacher(idx, 'extraLessons', isNaN(val) ? 0 : val);
+                            }} 
+                            className="w-14 bg-slate-50 border border-slate-200 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 rounded-lg px-1.5 py-1 text-center font-mono font-black text-sm text-amber-800 outline-none transition-all" 
+                            title="Số tiết tăng cường/bổ sung được cấu hình"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newT = [...teachers];
+                              newT[idx].extraLessons = computedExtra;
+                              setTeachers(newT);
+                            }}
+                            title="Đồng bộ với số tiết thực dạy"
+                            className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -701,6 +746,10 @@ function TeacherConfig({ teachers, setTeachers, subjects, classes, config }: { t
                         onClick={() => {
                           const newT = [...teachers];
                           newT[idx].assignments.splice(aIdx, 1);
+                          // Auto sync workload
+                          const { computedNormal, computedExtra } = getTeacherAssignedLessons(newT[idx]);
+                          newT[idx].normalLessons = computedNormal;
+                          newT[idx].extraLessons = computedExtra;
                           setTeachers(newT);
                         }}
                         className="absolute top-2 right-2 text-slate-300 hover:text-rose-600 opacity-0 group-hover/item:opacity-100 transition-all"
@@ -716,6 +765,10 @@ function TeacherConfig({ teachers, setTeachers, subjects, classes, config }: { t
                             const newSubjectId = e.target.value;
                             const newT = [...teachers];
                             newT[idx].assignments[aIdx].subjectId = newSubjectId;
+                            // Auto sync workload
+                            const { computedNormal, computedExtra } = getTeacherAssignedLessons(newT[idx]);
+                            newT[idx].normalLessons = computedNormal;
+                            newT[idx].extraLessons = computedExtra;
                             setTeachers(newT);
                           }}
                           className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-brand-500/20 outline-none"
@@ -769,6 +822,10 @@ function TeacherConfig({ teachers, setTeachers, subjects, classes, config }: { t
                                       newT[idx].assignments[aIdx].weekTypes![c.id] = defWeekType;
                                     }
                                   }
+                                  // Auto sync workload
+                                  const { computedNormal, computedExtra } = getTeacherAssignedLessons(newT[idx]);
+                                  newT[idx].normalLessons = computedNormal;
+                                  newT[idx].extraLessons = computedExtra;
                                   setTeachers(newT);
                                 }}
                                 className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all border ${
