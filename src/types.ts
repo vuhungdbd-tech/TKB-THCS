@@ -18,6 +18,9 @@ export interface Subject {
   hasExam?: boolean;
   examDuration?: number; // 1 or 2 periods
   allowGradeOverlap?: boolean; // Cho phép trùng tiết giữa các lớp trong cùng 1 khối (VD: Tiếng Anh, Thể dục)
+  maxOverlapClasses?: number; // Số lớp trùng tối đa trong cùng 1 tiết (2, 3, hoặc undefined/0 = không giới hạn/tất cả)
+  bannedPeriods?: number[]; // Các tiết tránh xếp lịch
+  morningPriority?: boolean; // Ưu tiên học buổi sáng
 }
 
 export interface TeacherAssignment {

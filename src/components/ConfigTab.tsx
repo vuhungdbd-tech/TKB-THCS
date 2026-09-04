@@ -81,7 +81,7 @@ export default function ConfigTab({ classes, setClasses, subjects, setSubjects, 
       <div className="flex-grow">
         <div className="glass-card p-6 min-h-[600px] shadow-xl shadow-stone-200/50">
           {subTab === 'classes' && <ClassConfig classes={classes} setClasses={setClasses} config={config} setConfig={setConfig} />}
-          {subTab === 'subjects' && <SubjectConfig subjects={subjects} setSubjects={setSubjects} />}
+          {subTab === 'subjects' && <SubjectConfig subjects={subjects} setSubjects={setSubjects} config={config} />}
           {subTab === 'teachers' && <TeacherConfig teachers={teachers} setTeachers={setTeachers} subjects={subjects} classes={classes} config={config} />}
           {subTab === 'time' && <TimeConfig config={config} setConfig={setConfig} classes={classes} subjects={subjects} />}
           {subTab === 'exams' && <ExamConfigUI config={config} setConfig={setConfig} subjects={subjects} />}
@@ -91,8 +91,9 @@ export default function ConfigTab({ classes, setClasses, subjects, setSubjects, 
   );
 }
 
-function SubjectConfig({ subjects, setSubjects }: { subjects: Subject[], setSubjects: any }) {
+function SubjectConfig({ subjects, setSubjects, config }: { subjects: Subject[], setSubjects: any, config: Config }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [activeBannedSubjectId, setActiveBannedSubjectId] = useState<string | null>(null);
 
   const handleAddSubject = () => {
     const newId = `s${Date.now()}`;
@@ -158,12 +159,15 @@ function SubjectConfig({ subjects, setSubjects }: { subjects: Subject[], setSubj
           <thead>
             <tr>
               <th className="w-8"></th>
-              <th>Tên môn</th>
+              <th className="min-w-[200px] text-left">Tên môn</th>
               <th>Số tiết/tuần</th>
               <th>Loại môn</th>
               <th>Tiết đôi</th>
               <th>Buổi học</th>
               <th title="Cho phép các lớp cùng khối học môn này ở cùng một tiết (nếu khác giáo viên)">Trùng khối</th>
+              <th>Mức trùng</th>
+              <th title="Ưu tiên xếp môn học này vào buổi Sáng">Ưu tiên Sáng</th>
+              <th title="Cấu hình các tiết không xếp môn này (ví dụ: Tránh Thể dục tiết 1 buổi chiều, tiết 4 buổi sáng)">Tiết tránh</th>
               <th>Kiểm tra</th>
               <th>Số tiết KT</th>
               <th className="text-right">Thao tác</th>
@@ -183,11 +187,11 @@ function SubjectConfig({ subjects, setSubjects }: { subjects: Subject[], setSubj
                       </svg>
                     </button>
                   </td>
-                  <td>
+                  <td className="min-w-[200px]">
                     <input 
                       value={sub.name || ''} 
                       onChange={(e) => updateSubject(idx, 'name', e.target.value)} 
-                      className="bg-transparent font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500/20 rounded px-1 -ml-1 w-full" 
+                      className="bg-transparent font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-500/20 rounded px-1 -ml-1 w-full min-w-[180px]" 
                     />
                   </td>
                   <td>
@@ -240,6 +244,116 @@ function SubjectConfig({ subjects, setSubjects }: { subjects: Subject[], setSubj
                     />
                   </td>
                   <td>
+                    <select
+                      value={sub.maxOverlapClasses || 0}
+                      disabled={sub.allowGradeOverlap === false}
+                      onChange={(e) => updateSubject(idx, 'maxOverlapClasses', parseInt(e.target.value) || undefined)}
+                      className="bg-slate-50 border border-slate-200 rounded px-1.5 py-1 text-xs disabled:opacity-30"
+                      title="Số lớp tối đa của cùng khối được dạy ghép trùng tiết"
+                    >
+                      <option value={0}>Không giới hạn</option>
+                      <option value={2}>Ghép tối đa 2 lớp</option>
+                      <option value={3}>Ghép tối đa 3 lớp</option>
+                    </select>
+                  </td>
+                  <td className="text-center">
+                    <input 
+                      type="checkbox" 
+                      checked={sub.morningPriority || false} 
+                      onChange={(e) => updateSubject(idx, 'morningPriority', e.target.checked)} 
+                      className="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500 cursor-pointer" 
+                      title="Ưu tiên xếp môn này vào buổi Sáng"
+                    />
+                  </td>
+                  <td>
+                    <div className="relative inline-block text-left">
+                      <button
+                        type="button"
+                        onClick={() => setActiveBannedSubjectId(activeBannedSubjectId === sub.id ? null : sub.id)}
+                        className={`px-2 py-1 rounded text-xs font-semibold border flex items-center gap-1 cursor-pointer transition-colors ${
+                          sub.bannedPeriods && sub.bannedPeriods.length > 0 
+                            ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100' 
+                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Clock className="w-3 h-3 text-slate-400" />
+                        {sub.bannedPeriods && sub.bannedPeriods.length > 0 
+                          ? `${sub.bannedPeriods.length} tiết` 
+                          : 'Chọn tiết'}
+                      </button>
+                      {activeBannedSubjectId === sub.id && (
+                        <>
+                          <div 
+                            className="fixed inset-0 z-40" 
+                            onClick={() => setActiveBannedSubjectId(null)} 
+                          />
+                          <div className="absolute right-0 mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-lg p-3.5 z-50 space-y-2">
+                            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-1.5 mb-1 flex justify-between items-center">
+                              <span>Tránh tiết giảng dạy</span>
+                              <button 
+                                type="button" 
+                                onClick={() => updateSubject(idx, 'bannedPeriods', [])}
+                                className="text-[10px] font-bold text-brand-600 hover:text-brand-700"
+                              >
+                                Xóa hết
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 max-h-48 overflow-y-auto pt-1">
+                              <div>
+                                <div className="text-[10px] font-extrabold text-slate-400 mb-1.5 uppercase font-mono">Buổi Sáng</div>
+                                {Array.from({ length: config.morningLessons || 5 }).map((_, pIdx) => {
+                                  const pVal = pIdx;
+                                  const isChecked = sub.bannedPeriods?.includes(pVal) || false;
+                                  return (
+                                    <label key={pIdx} className="flex items-center gap-2 py-1 text-xs text-slate-600 hover:text-slate-900 cursor-pointer select-none">
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          const current = sub.bannedPeriods || [];
+                                          const next = e.target.checked 
+                                            ? [...current, pVal] 
+                                            : current.filter(x => x !== pVal);
+                                          updateSubject(idx, 'bannedPeriods', next);
+                                        }}
+                                        className="w-3.5 h-3.5 rounded text-brand-600 border-slate-300 focus:ring-brand-500"
+                                      />
+                                      <span>Tiết {pIdx + 1}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                              <div>
+                                <div className="text-[10px] font-extrabold text-slate-400 mb-1.5 uppercase font-mono">Buổi Chiều</div>
+                                {Array.from({ length: config.afternoonLessons || 5 }).map((_, pIdx) => {
+                                  const pVal = (config.morningLessons || 5) + pIdx;
+                                  const isChecked = sub.bannedPeriods?.includes(pVal) || false;
+                                  return (
+                                    <label key={pIdx} className="flex items-center gap-2 py-1 text-xs text-slate-600 hover:text-slate-900 cursor-pointer select-none">
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          const current = sub.bannedPeriods || [];
+                                          const next = e.target.checked 
+                                            ? [...current, pVal] 
+                                            : current.filter(x => x !== pVal);
+                                          updateSubject(idx, 'bannedPeriods', next);
+                                        }}
+                                        className="w-3.5 h-3.5 rounded text-brand-600 border-slate-300 focus:ring-brand-500"
+                                      />
+                                      <span>Tiết {pIdx + 1}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                  <td>
                     <input 
                       type="checkbox" 
                       checked={sub.hasExam || false} 
@@ -272,7 +386,7 @@ function SubjectConfig({ subjects, setSubjects }: { subjects: Subject[], setSubj
                 {expandedId === sub.id && (
                   <tr className="bg-slate-50/50">
                     <td></td>
-                    <td colSpan={9} className="p-4 border-t border-slate-100">
+                    <td colSpan={11} className="p-4 border-t border-slate-100">
                       <div className="bg-white rounded-lg border border-slate-200 p-4">
                         <h4 className="text-sm font-bold text-slate-700 mb-3">Tùy chỉnh số tiết theo lớp / học kì</h4>
                         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

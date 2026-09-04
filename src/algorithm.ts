@@ -305,6 +305,52 @@ export function generateTimetable(
     return teacher.timeOff.some(off => off.day === day && (off.session === 'all' || off.session === session));
   };
 
+  const isTeacherOccupiedAtAll = (teacherId: string, day: number, period: number): boolean => {
+    if (teacherId === 'none') return false;
+    return slots.some(s => s.teacherId === teacherId && s.day === day && s.period === period);
+  };
+
+  const isTeacherBusyForClass = (
+    teacherId: string,
+    day: number,
+    period: number,
+    classId: string,
+    subjectId: string,
+    relaxConstraints: boolean = false
+  ): boolean => {
+    if (teacherId === 'none') return false;
+    if (isTeacherOff(teacherId, day, period)) return true;
+
+    const activeSlots = slots.filter(s => s.teacherId === teacherId && s.day === day && s.period === period && s.classId !== classId);
+    if (activeSlots.length === 0) return false;
+
+    const cls = classes.find(c => c.id === classId);
+    if (!cls) return true;
+
+    const sub = subjects.find(s => s.id === subjectId);
+    const allowGradeOverlap = sub?.allowGradeOverlap !== false;
+
+    if (!allowGradeOverlap) {
+      return true;
+    }
+
+    const hasConflict = activeSlots.some(s => {
+      const otherCls = classes.find(c => c.id === s.classId);
+      return !otherCls || otherCls.grade !== cls.grade || s.subjectId !== subjectId;
+    });
+
+    if (hasConflict) return true;
+
+    const maxOverlap = sub?.maxOverlapClasses;
+    if (maxOverlap && maxOverlap > 0 && !relaxConstraints) {
+      if (activeSlots.length >= maxOverlap) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
   const findExamTeacher = (lesson: LessonToSchedule, day: number, period: number, excludeTeacherId?: string): string | null => {
     const sub = subjects.find(s => s.id === lesson.subjectId);
     if (!sub || !lesson.isExam) return lesson.teacherId;
@@ -327,7 +373,7 @@ export function generateTimetable(
       if (t.id === excludeTeacherId) continue;
       if (!isTeacherQualified(t.id)) continue;
       if (isTeacherOff(t.id, day, period)) continue;
-      if (teacherSchedule[t.id][day][period]) continue;
+      if (isTeacherOccupiedAtAll(t.id, day, period)) continue;
       if (teacherDailyCount[t.id][day] + 1 > t.maxLessonsPerSession) continue;
       return t.id;
     }
@@ -341,6 +387,17 @@ export function generateTimetable(
     relaxConstraints: boolean = false
   ): { valid: boolean, reason?: string } => {
     const cls = classes.find(c => c.id === lesson.classId);
+    const sub = subjects.find(s => s.id === lesson.subjectId);
+
+    // Subject-specific banned periods check (Tránh tiết cấu hình môn học)
+    if (sub && sub.bannedPeriods && sub.bannedPeriods.length > 0 && !relaxConstraints) {
+      if (sub.bannedPeriods.includes(period)) {
+        return { valid: false, reason: 'Tránh tiết cấu hình môn học' };
+      }
+      if (lesson.isDouble && sub.bannedPeriods.includes(period + 1)) {
+        return { valid: false, reason: 'Tránh tiết cấu hình môn học (Tiết đôi)' };
+      }
+    }
     
     // Exam sync
     if (lesson.isExam && cls) {
@@ -403,31 +460,28 @@ export function generateTimetable(
       if (isTeacherOff(lesson.teacherId, day, period)) return { valid: false, reason: 'Giáo viên xin nghỉ' };
       if (lesson.isDouble && isTeacherOff(lesson.teacherId, day, period + 1)) return { valid: false, reason: 'Giáo viên xin nghỉ (Tiết đôi)' };
 
-      const sub = subjects.find(s => s.id === lesson.subjectId);
-      const allowGradeOverlap = sub?.allowGradeOverlap !== false;
-
-      // Check if teacher is free or teaching online to same grade for same subject
-      const isTeacherAvailableForSlot = (d: number, p: number) => {
-        const tSlots = slots.filter(s => s.teacherId === lesson.teacherId && s.day === d && s.period === p);
-        if (tSlots.length === 0) return true;
-        // ONLY allow teacher overlap (dạy ghép) if we are relaxing constraints and the subject allows grade overlap
-        if (relaxConstraints && allowGradeOverlap && cls) {
-          const allSameGradeAndSubject = tSlots.every(ts => {
-            const otherCls = classes.find(c => c.id === ts.classId);
-            return otherCls && otherCls.grade === cls.grade && ts.subjectId === lesson.subjectId;
-          });
-          if (allSameGradeAndSubject) return true; // Joint class teaching allowed
+      if (lesson.teacherId !== 'none') {
+        if (isTeacherBusyForClass(lesson.teacherId, day, period, lesson.classId, lesson.subjectId, relaxConstraints)) {
+          return { valid: false, reason: 'Giáo viên bận ở lớp khác' };
         }
-        return false;
-      };
+        if (lesson.isDouble && isTeacherBusyForClass(lesson.teacherId, day, period + 1, lesson.classId, lesson.subjectId, relaxConstraints)) {
+          return { valid: false, reason: 'Giáo viên bận ở lớp khác (Tiết đôi)' };
+        }
+      }
 
-      if (!isTeacherAvailableForSlot(day, period)) return { valid: false, reason: 'Giáo viên bận ở lớp khác' };
-      if (lesson.isDouble && !isTeacherAvailableForSlot(day, period + 1)) return { valid: false, reason: 'Giáo viên bận ở lớp khác (Tiết đôi)' };
-
-      const addedCount = lesson.isDouble ? 2 : 1;
       const teacher = teachers.find(t => t.id === lesson.teacherId);
-      if (teacher && teacherDailyCount[lesson.teacherId][day] + addedCount > teacher.maxLessonsPerSession) {
-        if (!relaxConstraints) return { valid: false, reason: 'Vượt định mức tiết/buổi của giáo viên' };
+      if (teacher) {
+        let newPeriodsAdded = 0;
+        if (!isTeacherOccupiedAtAll(lesson.teacherId, day, period)) {
+          newPeriodsAdded += 1;
+        }
+        if (lesson.isDouble && !isTeacherOccupiedAtAll(lesson.teacherId, day, period + 1)) {
+          newPeriodsAdded += 1;
+        }
+        
+        if ((teacherDailyCount[lesson.teacherId][day] || 0) + newPeriodsAdded > teacher.maxLessonsPerSession) {
+          if (!relaxConstraints) return { valid: false, reason: 'Vượt định mức tiết/buổi của giáo viên' };
+        }
       }
     }
 
@@ -437,7 +491,6 @@ export function generateTimetable(
     }
 
     // Subject grade overlap restriction (if allowGradeOverlap === false)
-    const sub = subjects.find(s => s.id === lesson.subjectId);
     const allowGradeOverlap = sub?.allowGradeOverlap !== false; // Default true unless explicitly false
 
     if (!allowGradeOverlap && cls) {
@@ -638,9 +691,9 @@ export function generateTimetable(
             // Teacher gap penalty
             let teacherGapPenalty = 0;
             const tId = lesson.teacherId;
-            if (tId && tId !== 'none' && teacherSchedule[tId]) {
+            if (tId && tId !== 'none') {
               let tLowest = sessionStart;
-              while (tLowest < sessionEnd && teacherSchedule[tId][day]?.[tLowest]) {
+              while (tLowest < sessionEnd && isTeacherOccupiedAtAll(tId, day, tLowest)) {
                 tLowest++;
               }
               if (period > tLowest) {
@@ -650,6 +703,7 @@ export function generateTimetable(
 
             // Grade parallel scheduling preference (for subjects allowing grade overlap like Tiếng Anh, Thể dục)
             let gradeParallelBonus = 0;
+            let staggerGradePenalty = 0;
             const sub = subjects.find(s => s.id === lesson.subjectId);
             const allowGradeOverlap = sub?.allowGradeOverlap !== false;
             if (allowGradeOverlap && cls) {
@@ -659,12 +713,55 @@ export function generateTimetable(
                 classSchedule[otherCls.id]?.[day]?.[period] === lesson.subjectId
               ).length;
               if (sameGradeCount > 0) {
-                gradeParallelBonus = -10000; // Strong bonus to encourage parallel slots for same grade (Tiếng Anh, Thể dục)
+                // If it is the same teacher, give an even stronger bonus to combine them and reduce teacher quota (dạy ghép)
+                const sameTeacherAndSubject = slots.some(s => 
+                  s.teacherId === lesson.teacherId && 
+                  s.day === day && 
+                  s.period === period && 
+                  s.subjectId === lesson.subjectId
+                );
+                if (sameTeacherAndSubject) {
+                  gradeParallelBonus = -500000; // Extremely strong bonus to group them with the same teacher
+                } else {
+                  gradeParallelBonus = -150000; // Strong bonus to align parallel classes for different teachers
+                }
+
+                // Check for grade overlap staggering (trùng so le giữa các khối)
+                // If another grade already has an overlapping block of classes for a grade-overlap subject on this same slot, apply a penalty
+                const otherGradesOverlapping = Array.from(new Set(classes.map(c => c.grade)))
+                  .filter(g => g !== cls.grade)
+                  .some(otherGrade => {
+                    const classesOfOtherGrade = classes.filter(c => c.grade === otherGrade);
+                    const subjectsInPeriod = classesOfOtherGrade
+                      .map(c => classSchedule[c.id]?.[day]?.[period])
+                      .filter(Boolean);
+                    
+                    const freqs: Record<string, number> = {};
+                    for (const sId of subjectsInPeriod) {
+                      freqs[sId] = (freqs[sId] || 0) + 1;
+                    }
+                    
+                    return Object.entries(freqs).some(([sId, count]) => {
+                      if (count < 2) return false;
+                      const otherSub = subjects.find(s => s.id === sId);
+                      return otherSub?.allowGradeOverlap !== false;
+                    });
+                  });
+
+                if (otherGradesOverlapping) {
+                  staggerGradePenalty = 250000; // Apply staggered penalty to push this grade's overlap to another period
+                }
               }
             }
 
+            // Morning priority penalty
+            let morningPriorityPenalty = 0;
+            if (sub?.morningPriority && !isMorning) {
+              morningPriorityPenalty = 400000; // Strong penalty for afternoon slots of morning priority subjects
+            }
+
             const relaxPenalty = relaxConstraints ? 2000000 : 0;
-            const score = gapPenalty + targetFillReward + dayOrderPenalty + teacherGapPenalty + gradeParallelBonus + relaxPenalty + Math.random();
+            const score = gapPenalty + targetFillReward + dayOrderPenalty + teacherGapPenalty + gradeParallelBonus + staggerGradePenalty + morningPriorityPenalty + relaxPenalty + Math.random();
             
             if (score < bestScore) {
               bestScore = score;
@@ -753,8 +850,7 @@ export function generateTimetable(
 
         // Check if teacher for unassigned lesson is free at (d, p)
         if (lesson.teacherId !== 'none') {
-          if (isTeacherOff(lesson.teacherId, d, p)) continue;
-          if (teacherSchedule[lesson.teacherId]?.[d]?.[p]) continue; // Teacher busy
+          if (isTeacherBusyForClass(lesson.teacherId, d, p, cls.id, lesson.subjectId)) continue;
         }
 
         if (classSubjectDays[cls.id][lesson.subjectId].has(d)) continue;
@@ -783,8 +879,7 @@ export function generateTimetable(
             if (classSchedule[cls.id][d2][p2]) continue;
 
             if (existingTeacherId !== 'none') {
-              if (isTeacherOff(existingTeacherId, d2, p2)) continue;
-              if (teacherSchedule[existingTeacherId]?.[d2]?.[p2]) continue;
+              if (isTeacherBusyForClass(existingTeacherId, d2, p2, cls.id, existingSubId)) continue;
             }
 
             // Perform swap
@@ -833,8 +928,7 @@ export function generateTimetable(
 
         // Is teacher available?
         if (lesson.teacherId !== 'none') {
-          if (isTeacherOff(lesson.teacherId, d, p)) continue;
-          if (teacherSchedule[lesson.teacherId]?.[d]?.[p]) continue; // Teacher busy
+          if (isTeacherBusyForClass(lesson.teacherId, d, p, cls.id, lesson.subjectId, true)) continue;
         }
 
         // Place lesson directly into this open slot
@@ -889,7 +983,7 @@ export function generateTimetable(
                     if (!classSchedule[cls.id][dayTarget]?.[pTarget]) {
                       const tId = sDonor.teacherId;
                       const canMove = !isSchoolOff(dayTarget, pTarget) &&
-                                      (tId === 'none' || (!isTeacherOff(tId, dayTarget, pTarget) && (!teacherSchedule[tId] || !teacherSchedule[tId][dayTarget] || !teacherSchedule[tId][dayTarget][pTarget] || teacherSchedule[tId][dayTarget][pTarget] === cls.id)));
+                                      (tId === 'none' || !isTeacherBusyForClass(tId, dayTarget, pTarget, cls.id, subId));
 
                       if (canMove) {
                         // Move lesson
@@ -949,15 +1043,14 @@ export function generateTimetable(
                                    (pNext - 1 >= startP && classSchedule[cls.id][day][pNext - 1] === subId);
 
                   if (!isDouble) {
-                    if (!isTeacherOff(tId, day, p) &&
-                        !isSchoolOff(day, p) &&
-                        (!teacherSchedule[tId] || !teacherSchedule[tId][day] || !teacherSchedule[tId][day][p] || teacherSchedule[tId][day][p] === cls.id)) {
+                    if (!isSchoolOff(day, p) &&
+                        (tId === 'none' || !isTeacherBusyForClass(tId, day, p, cls.id, subId))) {
                       
                       if (teacherSchedule[tId] && teacherSchedule[tId][day] && teacherSchedule[tId][day][pNext] === cls.id) {
                         delete teacherSchedule[tId][day][pNext];
                       }
                       delete classSchedule[cls.id][day][pNext];
-
+                      
                       if (tId && tId !== 'none' && teacherSchedule[tId] && teacherSchedule[tId][day]) {
                         teacherSchedule[tId][day][p] = cls.id;
                       }
@@ -974,8 +1067,8 @@ export function generateTimetable(
                       if (s2 && !s2.isExam && !s2.isFixed) {
                         if (p + 1 < endP && (!classSchedule[cls.id][day][p + 1] || p + 1 === pNext)) {
                           const t2Id = s2.teacherId;
-                          const canMoveT1 = !isTeacherOff(tId, day, p) && !isSchoolOff(day, p) && (!teacherSchedule[tId] || !teacherSchedule[tId][day] || !teacherSchedule[tId][day][p] || teacherSchedule[tId][day][p] === cls.id);
-                          const canMoveT2 = !isTeacherOff(t2Id, day, p + 1) && !isSchoolOff(day, p + 1) && (!teacherSchedule[t2Id] || !teacherSchedule[t2Id][day] || !teacherSchedule[t2Id][day][p + 1] || teacherSchedule[t2Id][day][p + 1] === cls.id);
+                          const canMoveT1 = !isSchoolOff(day, p) && (tId === 'none' || !isTeacherBusyForClass(tId, day, p, cls.id, subId));
+                          const canMoveT2 = !isSchoolOff(day, p + 1) && (t2Id === 'none' || !isTeacherBusyForClass(t2Id, day, p + 1, cls.id, subId));
 
                           if (canMoveT1 && canMoveT2) {
                             if (teacherSchedule[tId] && teacherSchedule[tId][day]) delete teacherSchedule[tId][day][pNext];
