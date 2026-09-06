@@ -14,7 +14,7 @@ const safeFetch: typeof fetch = async (input, init) => {
     try {
       controller.abort();
     } catch {}
-  }, 2500);
+  }, 12000);
 
   try {
     let signal = controller.signal;
@@ -41,17 +41,17 @@ const safeFetch: typeof fetch = async (input, init) => {
     // Network error (offline, DNS lookup failed, host unreachable, timeout, etc.)
     const urlStr = typeof input === 'string' ? input : (input && 'url' in input ? (input as any).url : String(input));
     
-    // For auth requests, return 200 with empty user/session so GoTrueClient does not throw or call console.error
+    // For auth requests, return 400 error response so GoTrue does not treat null session as successful 200 and throw AuthSessionMissingError
     if (urlStr.includes('/auth/v1/')) {
       return new Response(
         JSON.stringify({
-          data: { session: null, user: null },
-          session: null,
-          user: null,
+          error: 'network_unavailable',
+          error_description: 'Network error or offline mode',
+          message: 'Network error or offline mode',
         }),
         {
-          status: 200,
-          statusText: 'OK',
+          status: 400,
+          statusText: 'Bad Request',
           headers: {
             'Content-Type': 'application/json',
           },
@@ -59,12 +59,17 @@ const safeFetch: typeof fetch = async (input, init) => {
       );
     }
 
-    // For database requests (rest/v1), return 200 with empty array/object
+    // For database requests (rest/v1), return 503 error so Supabase client accurately knows network request failed
     return new Response(
-      JSON.stringify([]),
+      JSON.stringify({
+        code: 'PGRST_OFFLINE',
+        message: 'Không thể kết nối đến máy chủ Supabase (Ngoại tuyến hoặc mạng bị gián đoạn)',
+        details: 'Network failure or connection timed out',
+        hint: 'Dữ liệu được lưu trữ an toàn trong máy tính (localStorage).',
+      }),
       {
-        status: 200,
-        statusText: 'OK',
+        status: 503,
+        statusText: 'Service Unavailable',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -72,6 +77,28 @@ const safeFetch: typeof fetch = async (input, init) => {
     );
   }
 };
+
+// Clean up any corrupt or incomplete Supabase auth tokens in storage before initializing
+try {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+        const val = localStorage.getItem(key);
+        if (val) {
+          try {
+            const parsed = JSON.parse(val);
+            if (!parsed || !parsed.access_token) {
+              localStorage.removeItem(key);
+            }
+          } catch {
+            localStorage.removeItem(key);
+          }
+        }
+      }
+    }
+  }
+} catch {}
 
 // Only create client if URL is present to avoid "supabaseUrl is required" error
 export const supabase = (supabaseUrl && supabaseAnonKey) 
@@ -94,4 +121,58 @@ export const supabase = (supabaseUrl && supabaseAnonKey)
       },
     })
   : null as any;
+
+// Safely patch Supabase auth methods so AuthSessionMissingError is never unhandled
+if (supabase?.auth) {
+  const origGetSession = supabase.auth.getSession.bind(supabase.auth);
+  supabase.auth.getSession = async () => {
+    try {
+      const res = await origGetSession();
+      return res || { data: { session: null }, error: null };
+    } catch (_err: any) {
+      // Clear potentially corrupt storage on session error
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+              localStorage.removeItem(key);
+            }
+          }
+        }
+      } catch {}
+      return { data: { session: null }, error: null };
+    }
+  };
+
+  const origGetUser = supabase.auth.getUser.bind(supabase.auth);
+  supabase.auth.getUser = async (jwt?: string) => {
+    try {
+      const res = await origGetUser(jwt);
+      return res || { data: { user: null }, error: null };
+    } catch {
+      return { data: { user: null }, error: null };
+    }
+  };
+
+  const origSignOut = supabase.auth.signOut.bind(supabase.auth);
+  supabase.auth.signOut = async (options?: any) => {
+    try {
+      const res = await origSignOut(options);
+      return res || { error: null };
+    } catch {
+      return { error: null };
+    }
+  };
+
+  const origRefreshSession = supabase.auth.refreshSession.bind(supabase.auth);
+  supabase.auth.refreshSession = async (currentSession?: any) => {
+    try {
+      const res = await origRefreshSession(currentSession);
+      return res || { data: { session: null, user: null }, error: null };
+    } catch {
+      return { data: { session: null, user: null }, error: null };
+    }
+  };
+}
 

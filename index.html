@@ -34,7 +34,9 @@
             str.indexOf('Failed to fetch') !== -1 ||
             str.indexOf('offline') !== -1 ||
             str.indexOf('Auto refresh tick failed') !== -1 ||
-            (first && (first.name === 'AuthApiError' || first.name === 'AuthRetryableFetchError'))
+            str.indexOf('Auth session missing') !== -1 ||
+            str.indexOf('AuthSessionMissingError') !== -1 ||
+            (first && (first.name === 'AuthSessionMissingError' || first.name === 'AuthApiError' || first.name === 'AuthRetryableFetchError'))
           ) {
             console.warn.apply(console, args);
             return;
@@ -42,17 +44,18 @@
           origConsoleError.apply(console, args);
         };
 
-        function silence(e) {
-          if (e) {
-            if (typeof e.preventDefault === 'function') e.preventDefault();
-            if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
-          }
-        }
         window.addEventListener('unhandledrejection', function(event) {
-          silence(event);
-        }, true);
-        window.addEventListener('error', function(event) {
-          silence(event);
+          var reason = event && event.reason;
+          var str = String((reason && (reason.message || reason.name)) || reason || '');
+          if (
+            str.indexOf('Supabase') !== -1 ||
+            str.indexOf('Failed to fetch') !== -1 ||
+            str.indexOf('NetworkError') !== -1 ||
+            str.indexOf('Auth session missing') !== -1 ||
+            str.indexOf('AuthSessionMissingError') !== -1
+          ) {
+            if (event.preventDefault) event.preventDefault();
+          }
         }, true);
       })();
     </script>

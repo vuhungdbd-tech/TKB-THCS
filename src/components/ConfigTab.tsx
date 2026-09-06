@@ -591,7 +591,7 @@ function TeacherConfig({ teachers, setTeachers, subjects, classes, config }: { t
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 bg-brand-50 text-brand-600 rounded-2xl flex items-center justify-center font-bold text-lg">
-                        {t.name.split(' ').pop()?.charAt(0)}
+                        {t.name ? (t.name.split(' ').pop()?.charAt(0) || '') : '?'}
                       </div>
                       <div className="flex-grow">
                         <input 
@@ -1637,9 +1637,11 @@ function TimeConfig({ config, setConfig, classes, subjects, teachers }: { config
                         <select 
                           value={off.day}
                           onChange={(e) => {
-                            const newTimeOff = [...config.timeOff!];
-                            newTimeOff[oIdx].day = parseInt(e.target.value);
-                            setConfig({ ...config, timeOff: newTimeOff });
+                            const newTimeOff = [...(config.timeOff || [])];
+                            if (newTimeOff[oIdx]) {
+                              newTimeOff[oIdx] = { ...newTimeOff[oIdx], day: parseInt(e.target.value) };
+                              setConfig({ ...config, timeOff: newTimeOff });
+                            }
                           }}
                           className="bg-white border border-slate-200 rounded px-2 py-1.5 text-xs font-bold text-slate-700 outline-none flex-grow"
                         >
@@ -1653,9 +1655,11 @@ function TimeConfig({ config, setConfig, classes, subjects, teachers }: { config
                         <select 
                           value={off.session}
                           onChange={(e) => {
-                            const newTimeOff = [...config.timeOff!];
-                            newTimeOff[oIdx].session = e.target.value as any;
-                            setConfig({ ...config, timeOff: newTimeOff });
+                            const newTimeOff = [...(config.timeOff || [])];
+                            if (newTimeOff[oIdx]) {
+                              newTimeOff[oIdx] = { ...newTimeOff[oIdx], session: e.target.value as any };
+                              setConfig({ ...config, timeOff: newTimeOff });
+                            }
                           }}
                           className="bg-white border border-slate-200 rounded px-2 py-1.5 text-xs font-bold text-slate-700 outline-none"
                         >

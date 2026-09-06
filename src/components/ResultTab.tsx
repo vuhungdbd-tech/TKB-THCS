@@ -50,8 +50,11 @@ export default function ResultTab({ timetable, unassigned, classes, subjects, te
     localStorage.setItem('resultSelectedId', id);
   };
 
-  const totalPeriods = config.morningLessons + config.afternoonLessons;
-  const days = Array.from({ length: config.days }, (_, i) => i);
+  const morningCount = Math.max(1, Number(config?.morningLessons) || 4);
+  const afternoonCount = Math.max(0, Number(config?.afternoonLessons) || 0);
+  const totalPeriods = morningCount + afternoonCount;
+  const numDays = Math.max(1, Number(config?.days) || 6);
+  const days = Array.from({ length: numDays }, (_, i) => i);
   const periods = Array.from({ length: totalPeriods }, (_, i) => i);
 
   const getSlot = (day: number, period: number) => {
@@ -192,12 +195,20 @@ export default function ResultTab({ timetable, unassigned, classes, subjects, te
     });
 
     const buffer = await workbook.xlsx.writeBuffer();
-    saveAs(new Blob([buffer]), `TKB_${config.schoolName.replace(/\s+/g, '_')}.xlsx`);
+    saveAs(new Blob([buffer]), `TKB_${(config.schoolName || 'ThoiKhoaBieu').replace(/\s+/g, '_')}.xlsx`);
   };
 
   const renderMasterTable = (isMorning: boolean) => {
-    const periodsCount = isMorning ? config.morningLessons : config.afternoonLessons;
-    const startPeriod = isMorning ? 0 : config.morningLessons;
+    const periodsCount = isMorning ? (Number(config.morningLessons) || 4) : (Number(config.afternoonLessons) || 0);
+    const startPeriod = isMorning ? 0 : (Number(config.morningLessons) || 4);
+
+    if (periodsCount <= 0) {
+      return (
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 text-center py-12">
+          <p className="text-slate-500 font-semibold">Trường học không cấu hình tiết học cho Buổi {isMorning ? 'Sáng' : 'Chiều'} (số tiết = 0).</p>
+        </div>
+      );
+    }
     
     return (
       <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 overflow-x-auto">
@@ -272,7 +283,7 @@ export default function ResultTab({ timetable, unassigned, classes, subjects, te
                                   {slot.isExam ? `[KT] ${sub?.name}` : (slot.subTopic ? `${sub?.name} (${slot.subTopic})` : sub?.name)}
                                 </span>
                                 <span className="text-[12px] font-bold text-text-muted uppercase tracking-wider">
-                                  {teacher?.name.split(' ').pop()}
+                                  {teacher?.name ? teacher.name.split(' ').pop() : ''}
                                 </span>
                               </div>
                             ) : (isClassOff || isSchoolOff) ? (

@@ -6,7 +6,7 @@ import ConfigTab from './components/ConfigTab';
 import ResultTab from './components/ResultTab';
 import LicenseManager from './components/LicenseManager';
 import Login from './components/Login';
-import { Layout, Settings, Calendar, Save, RotateCcw, Play, School, Cloud, CloudOff, Loader2, LogOut, Key, Database, Copy, Check, X } from 'lucide-react';
+import { Layout, Settings, Calendar, Save, RotateCcw, Play, School, Cloud, CloudOff, Loader2, LogOut, Key, Database, Copy, Check, X, Download, Upload, RefreshCw, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from './lib/supabase';
 
@@ -127,7 +127,14 @@ export default function App() {
   const [session, setSession] = useState<any>(() => {
     try {
       const saved = localStorage.getItem('localSession');
-      return saved ? JSON.parse(saved) : null;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.user) return parsed;
+        if (parsed?.email || parsed?.id) {
+          return { user: { id: parsed.id || 'offline-user', email: parsed.email || 'vuhung@db.edu.vn' } };
+        }
+      }
+      return null;
     } catch {
       return null;
     }
@@ -214,7 +221,11 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'offline'>('offline');
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [showSqlModal, setShowSqlModal] = useState<boolean>(false);
+  const [showBackupModal, setShowBackupModal] = useState<boolean>(false);
   const [sqlCopied, setSqlCopied] = useState<boolean>(false);
+  const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
+  const [connectionTestResult, setConnectionTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const isInitialLoadDone = React.useRef<boolean>(false);
   const saveDebounceRef = React.useRef<any>(null);
@@ -235,6 +246,150 @@ export default function App() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const testSupabaseConnection = async () => {
+    if (!supabase) {
+      setConnectionTestResult({ success: false, message: 'Chưa cấu hình Supabase URL hoặc Anon Key.' });
+      return;
+    }
+    setIsTestingConnection(true);
+    setConnectionTestResult(null);
+    try {
+      const { data, error } = await supabase
+        .from('app_data')
+        .select('id')
+        .limit(1);
+
+      if (error) {
+        setConnectionTestResult({ 
+          success: false, 
+          message: `Lỗi kết nối bảng app_data: ${error.message || error.code || 'Không phản hồi'}. Vui lòng chạy mã SQL bên dưới trên Supabase SQL Editor!` 
+        });
+      } else {
+        setConnectionTestResult({ 
+          success: true, 
+          message: 'Kết nối Supabase & bảng app_data thành công! Dữ liệu sẵn sàng lưu trữ và đồng bộ đám mây.' 
+        });
+      }
+    } catch (err: any) {
+      setConnectionTestResult({ 
+        success: false, 
+        message: `Không thể kết nối Supabase (${err?.message || 'Mất kết nối mạng'}).` 
+      });
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
+  const handleExportBackup = () => {
+    const dataToSave = { classes, subjects, teachers, config, weeklyTimetables, currentWeek };
+    const jsonStr = JSON.stringify(dataToSave, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const userTag = session?.user?.email ? session.user.email.replace(/[@.]/g, '_') : 'offline';
+    a.download = `TKB_SaoLuu_${userTag}_${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+
+        if (!parsed || typeof parsed !== 'object') {
+          alert('Tệp dữ liệu không hợp lệ!');
+          return;
+        }
+
+        if (parsed.classes) setClasses(parsed.classes);
+        if (parsed.subjects) setSubjects(parsed.subjects);
+        if (parsed.teachers) setTeachers(parsed.teachers);
+        if (parsed.config) setConfig({ ...initialConfig, ...parsed.config });
+        if (parsed.weeklyTimetables) {
+          setWeeklyTimetables(parsed.weeklyTimetables);
+        } else if (parsed.timetable) {
+          setWeeklyTimetables({ 1: { timetable: parsed.timetable, unassigned: parsed.unassigned || [] } });
+        }
+        if (parsed.currentWeek) setCurrentWeek(parsed.currentWeek);
+
+        // Save immediately locally
+        localStorage.setItem('timetableData', JSON.stringify(parsed));
+        try {
+          localStorage.setItem('timetableData_backup', JSON.stringify(parsed));
+        } catch {}
+
+        // Push to Supabase if connected
+        if (supabase && session) {
+          const keys = Array.from(new Set([session.user.id, session.user.email].filter(Boolean)));
+          for (const k of keys) {
+            await supabase.from('app_data').upsert({
+              id: k,
+              data: parsed,
+              updated_at: new Date().toISOString()
+            });
+          }
+          setSyncStatus('synced');
+          setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+        }
+
+        alert('✅ Đã nhập và khôi phục toàn bộ dữ liệu thời khóa biểu thành công!');
+        setShowBackupModal(false);
+      } catch (err: any) {
+        alert(`Lỗi khi đọc tệp: ${err?.message || 'Định dạng tệp không đúng'}`);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleRestoreLocalBackup = async () => {
+    try {
+      const backup = localStorage.getItem('timetableData_backup');
+      if (!backup) {
+        alert('Chưa có bản sao lưu trước đó trong bộ nhớ trình duyệt.');
+        return;
+      }
+      const parsed = JSON.parse(backup);
+      if (confirm('Bạn có chắc chắn muốn khôi phục lại dữ liệu từ bản sao lưu gần nhất trong máy không?')) {
+        if (parsed.classes) setClasses(parsed.classes);
+        if (parsed.subjects) setSubjects(parsed.subjects);
+        if (parsed.teachers) setTeachers(parsed.teachers);
+        if (parsed.config) setConfig({ ...initialConfig, ...parsed.config });
+        if (parsed.weeklyTimetables) setWeeklyTimetables(parsed.weeklyTimetables);
+        if (parsed.currentWeek) setCurrentWeek(parsed.currentWeek);
+        
+        localStorage.setItem('timetableData', backup);
+        
+        if (supabase && session) {
+          const keys = Array.from(new Set([session.user.id, session.user.email].filter(Boolean)));
+          for (const k of keys) {
+            await supabase.from('app_data').upsert({
+              id: k,
+              data: parsed,
+              updated_at: new Date().toISOString()
+            });
+          }
+          setSyncStatus('synced');
+          setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+        }
+        alert('✅ Đã khôi phục dữ liệu từ bản sao lưu thành công!');
+        setShowBackupModal(false);
+      }
+    } catch {
+      alert('Không thể khôi phục bản sao lưu.');
+    }
   };
 
   // If we already have local session or no supabase, don't show loading spinner
@@ -258,8 +413,9 @@ export default function App() {
       return;
     }
 
-    supabase.auth.getSession().then(({ data: { session: fetchedSession } }) => {
+    supabase.auth.getSession().then((res: any) => {
       if (isMounted) {
+        const fetchedSession = res?.data?.session;
         if (fetchedSession) {
           setSession(fetchedSession);
         }
@@ -297,7 +453,7 @@ export default function App() {
   const [licenseInfo, setLicenseInfo] = useState<any>(null);
 
   useEffect(() => {
-    if (!supabase || !session) return;
+    if (!supabase || !session?.user?.email) return;
 
     const fetchLicense = async () => {
       try {
@@ -316,13 +472,13 @@ export default function App() {
     };
 
     fetchLicense();
-  }, [session]);
+  }, [session?.user?.email]);
 
   const loadData = useCallback(async () => {
     if (!session) return;
     
     // Check localStorage fallback
-    const savedData = localStorage.getItem('timetableData');
+    const savedData = localStorage.getItem('timetableData') || localStorage.getItem('timetableData_backup');
     let localParsed: any = null;
     if (savedData) {
       try {
@@ -351,44 +507,87 @@ export default function App() {
     setSyncStatus('syncing');
 
     try {
-      const { data, error } = await supabase
-        .from('app_data')
-        .select('data, updated_at')
-        .eq('id', session.user.id)
-        .single();
+      const userKey = session?.user?.id || 'offline-user';
+      const emailKey = session?.user?.email;
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          // No data found on remote DB yet: automatically push initial local data to Supabase!
-          if (localParsed) {
-            await supabase
-              .from('app_data')
-              .upsert({ 
-                id: session.user.id, 
-                data: localParsed,
-                updated_at: new Date().toISOString()
-              });
+      let remoteRecord: any = null;
+
+      // 1. Primary lookup by user id
+      try {
+        const { data: d1 } = await supabase
+          .from('app_data')
+          .select('data, updated_at')
+          .eq('id', userKey)
+          .maybeSingle();
+        if (d1?.data) {
+          remoteRecord = d1.data;
+        }
+      } catch {}
+
+      // 2. Secondary lookup by email if available and not yet found
+      if (!remoteRecord && emailKey && emailKey !== userKey) {
+        try {
+          const { data: d2 } = await supabase
+            .from('app_data')
+            .select('data, updated_at')
+            .eq('id', emailKey)
+            .maybeSingle();
+          if (d2?.data) {
+            remoteRecord = d2.data;
           }
-          setSyncStatus('synced');
-          setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
-        } else {
-          // Network fetch error or unreachable Supabase instance
-          setSyncStatus('offline');
+        } catch {}
+      }
+
+      // 3. Fallback check for 'offline-user'
+      if (!remoteRecord && userKey !== 'offline-user') {
+        try {
+          const { data: d3 } = await supabase
+            .from('app_data')
+            .select('data, updated_at')
+            .eq('id', 'offline-user')
+            .maybeSingle();
+          if (d3?.data) {
+            remoteRecord = d3.data;
+          }
+        } catch {}
+      }
+
+      if (remoteRecord) {
+        if (remoteRecord.classes) setClasses(remoteRecord.classes);
+        if (remoteRecord.subjects) setSubjects(remoteRecord.subjects);
+        if (remoteRecord.teachers) setTeachers(remoteRecord.teachers);
+        if (remoteRecord.config) setConfig({ ...initialConfig, ...remoteRecord.config });
+        if (remoteRecord.weeklyTimetables) {
+          setWeeklyTimetables(remoteRecord.weeklyTimetables);
+        } else if (remoteRecord.timetable) {
+          setWeeklyTimetables({ 1: { timetable: remoteRecord.timetable, unassigned: remoteRecord.unassigned || [] } });
         }
-      } else if (data?.data) {
-        const parsed = data.data;
-        if (parsed.classes) setClasses(parsed.classes);
-        if (parsed.subjects) setSubjects(parsed.subjects);
-        if (parsed.teachers) setTeachers(parsed.teachers);
-        if (parsed.config) setConfig({ ...initialConfig, ...parsed.config });
-        if (parsed.weeklyTimetables) {
-          setWeeklyTimetables(parsed.weeklyTimetables);
-        } else if (parsed.timetable) {
-          setWeeklyTimetables({ 1: { timetable: parsed.timetable, unassigned: parsed.unassigned || [] } });
-        }
-        if (parsed.currentWeek) setCurrentWeek(parsed.currentWeek);
+        if (remoteRecord.currentWeek) setCurrentWeek(remoteRecord.currentWeek);
+
+        // Keep local backup in sync with verified remote data
+        localStorage.setItem('timetableData', JSON.stringify(remoteRecord));
+        try {
+          localStorage.setItem('timetableData_backup', JSON.stringify(remoteRecord));
+        } catch {}
+
         setSyncStatus('synced');
         setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+      } else if (localParsed) {
+        // If remote has no record yet, push our current local data up
+        const keysToPush = Array.from(new Set([userKey, emailKey].filter(Boolean)));
+        for (const k of keysToPush) {
+          await supabase
+            .from('app_data')
+            .upsert({ 
+              id: k, 
+              data: localParsed,
+              updated_at: new Date().toISOString()
+            });
+        }
+        setSyncStatus('synced');
+        setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+      } else {
+        setSyncStatus('synced');
       }
     } catch (e) {
       setSyncStatus('offline');
@@ -413,29 +612,38 @@ export default function App() {
   }, []);
 
   // Auto-save changes to localStorage immediately AND debounce sync to Supabase
+  // ONLY execute when isInitialLoadDone.current is true to prevent erasing saved state on startup!
   useEffect(() => {
-    if (!isLoading && session) {
+    if (!isLoading && session && isInitialLoadDone.current) {
       const dataToSave = { classes, subjects, teachers, config, weeklyTimetables, currentWeek };
       // 1. Immediate local backup
       localStorage.setItem('timetableData', JSON.stringify(dataToSave));
+      try {
+        localStorage.setItem('timetableData_backup', JSON.stringify(dataToSave));
+      } catch {}
 
       // 2. Debounced push to Supabase (after user pauses typing/editing for 1.2s)
-      if (isInitialLoadDone.current && supabase) {
+      if (supabase) {
         setSyncStatus('syncing');
         if (saveDebounceRef.current) {
           clearTimeout(saveDebounceRef.current);
         }
         saveDebounceRef.current = setTimeout(async () => {
           try {
-            const { error } = await supabase
-              .from('app_data')
-              .upsert({ 
-                id: session.user.id, 
-                data: dataToSave,
-                updated_at: new Date().toISOString()
-              });
+            const keysToSync = Array.from(new Set([session.user.id, session.user.email].filter(Boolean)));
+            let hasError = false;
+            for (const k of keysToSync) {
+              const { error } = await supabase
+                .from('app_data')
+                .upsert({ 
+                  id: k, 
+                  data: dataToSave,
+                  updated_at: new Date().toISOString()
+                });
+              if (error) hasError = true;
+            }
 
-            if (error) {
+            if (hasError) {
               setSyncStatus('offline');
             } else {
               setSyncStatus('synced');
@@ -457,34 +665,43 @@ export default function App() {
     
     // Save to localStorage as primary backup
     localStorage.setItem('timetableData', JSON.stringify(dataToSave));
+    try {
+      localStorage.setItem('timetableData_backup', JSON.stringify(dataToSave));
+    } catch {}
 
     if (!supabase || !session) {
       setSyncStatus('offline');
-      alert('Đã lưu an toàn vào máy của bạn (Chế độ lưu cục bộ).');
+      alert('Đã lưu an toàn 100% vào máy tính của bạn (Chế độ lưu bộ nhớ cục bộ).');
       return;
     }
 
     setSyncStatus('syncing');
     try {
-      const { error } = await supabase
-        .from('app_data')
-        .upsert({ 
-          id: session.user.id, 
-          data: dataToSave,
-          updated_at: new Date().toISOString()
-        });
+      const keysToSync = Array.from(new Set([session.user.id, session.user.email].filter(Boolean)));
+      let syncError: any = null;
 
-      if (error) {
+      for (const k of keysToSync) {
+        const { error } = await supabase
+          .from('app_data')
+          .upsert({ 
+            id: k, 
+            data: dataToSave,
+            updated_at: new Date().toISOString()
+          });
+        if (error) syncError = error;
+      }
+
+      if (syncError) {
         setSyncStatus('offline');
-        alert('Đã lưu dữ liệu vào trình duyệt (Chưa thể đồng bộ lên Supabase. Vui lòng kiểm tra mã SQL tạo bảng trong nút "Mã SQL").');
+        alert(`Đã lưu an toàn vào máy tính.\nĐồng bộ Supabase chưa hoàn tất: ${syncError.message || syncError.code || 'Mất kết nối mạng'}.\nVui lòng bấm nút "Mã SQL Supabase" để kiểm tra bảng app_data!`);
       } else {
         setSyncStatus('synced');
         setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
         alert('✅ Đã lưu và đồng bộ toàn bộ dữ liệu thiết lập lên máy chủ Supabase thành công!');
       }
-    } catch (e) {
+    } catch (e: any) {
       setSyncStatus('offline');
-      alert('Đã lưu dữ liệu vào trình duyệt (Máy chủ ngoại tuyến).');
+      alert(`Đã lưu dữ liệu vào máy tính (Máy chủ ngoại tuyến: ${e?.message || 'Mất kết nối'}).`);
     }
   };
 
@@ -504,19 +721,27 @@ export default function App() {
     setWeeklyTimetables(updatedWeekly);
     setActiveTab('result');
 
-    // Trigger immediate sync to Supabase when new timetable is generated
+    // Save immediately locally and trigger sync to Supabase
+    const dataToSave = { classes, subjects, teachers, config: finalConfig, weeklyTimetables: updatedWeekly, currentWeek };
+    localStorage.setItem('timetableData', JSON.stringify(dataToSave));
+    try {
+      localStorage.setItem('timetableData_backup', JSON.stringify(dataToSave));
+    } catch {}
+
     if (session && supabase) {
-      const dataToSave = { classes, subjects, teachers, config: finalConfig, weeklyTimetables: updatedWeekly, currentWeek };
-      supabase.from('app_data').upsert({
-        id: session.user.id,
-        data: dataToSave,
-        updated_at: new Date().toISOString()
-      }).then(({ error }) => {
-        if (!error) {
-          setSyncStatus('synced');
-          setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
-        }
-      }).catch(() => {});
+      const keysToSync = Array.from(new Set([session.user.id, session.user.email].filter(Boolean)));
+      for (const k of keysToSync) {
+        supabase.from('app_data').upsert({
+          id: k,
+          data: dataToSave,
+          updated_at: new Date().toISOString()
+        }).then(({ error }) => {
+          if (!error) {
+            setSyncStatus('synced');
+            setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+          }
+        }).catch(() => {});
+      }
     }
   };
 
@@ -557,7 +782,17 @@ export default function App() {
 
   const handleLogout = async () => {
     localStorage.removeItem('localSession');
-    if (supabase) {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+            localStorage.removeItem(key);
+          }
+        }
+      }
+    } catch {}
+    if (supabase?.auth) {
       try {
         await supabase.auth.signOut();
       } catch (e) {
@@ -590,16 +825,22 @@ export default function App() {
     );
   }
 
-  if (!session) {
+  if (!session || !session.user) {
     return (
       <Login 
         onLogin={(newSession) => {
           if (newSession) {
-            setSession(newSession);
+            const normalized = newSession.user ? newSession : { user: { id: newSession.id || 'offline-user', email: newSession.email || 'vuhung@db.edu.vn' } };
+            setSession(normalized);
+            localStorage.setItem('localSession', JSON.stringify(normalized));
           } else {
             const saved = localStorage.getItem('localSession');
             if (saved) {
-              try { setSession(JSON.parse(saved)); } catch {}
+              try { 
+                const parsed = JSON.parse(saved);
+                if (parsed?.user) setSession(parsed);
+                else if (parsed?.email || parsed?.id) setSession({ user: { id: parsed.id || 'offline-user', email: parsed.email || 'vuhung@db.edu.vn' } });
+              } catch {}
             }
           }
         }} 
@@ -644,7 +885,7 @@ export default function App() {
                 <div className="w-1 h-1 bg-stone-300 rounded-full" />
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">
-                    Chào, {session.user.user_metadata?.full_name || session.user.email}
+                    Chào, {session?.user?.user_metadata?.full_name || session?.user?.email || 'Người dùng'}
                   </span>
                   <div className="w-1 h-1 bg-stone-300 rounded-full" />
                   {syncStatus === 'synced' && <Cloud className="w-3.5 h-3.5 text-emerald-500" />}
@@ -666,6 +907,13 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              accept=".json" 
+              onChange={handleImportBackup} 
+              className="hidden" 
+            />
             <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1 no-print">
               <span className="text-xs font-bold text-slate-500 pl-3">Tuần</span>
               <select 
@@ -678,6 +926,14 @@ export default function App() {
                 ))}
               </select>
             </div>
+            <button 
+              onClick={() => setShowBackupModal(true)} 
+              title="Sao lưu, xuất tệp JSON hoặc khôi phục dữ liệu thời khóa biểu"
+              className="btn-secondary flex items-center gap-2 py-3 px-3.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200 shadow-xs"
+            >
+              <Download className="w-5 h-5 text-emerald-600" />
+              <span className="hidden md:inline font-bold text-xs">Sao lưu / Phục hồi</span>
+            </button>
             <button 
               onClick={() => setShowSqlModal(true)} 
               title="Xem và sao chép mã SQL Supabase để cấp lại quyền & bảng"
@@ -816,6 +1072,33 @@ export default function App() {
             </div>
 
             <div className="p-6 overflow-y-auto space-y-4">
+              {/* Connection Tester */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800">Kiểm tra kết nối Supabase</h4>
+                  <p className="text-[11px] text-slate-500">Kiểm tra xem bảng app_data trên Supabase đã hoạt động và đọc/ghi được chưa</p>
+                </div>
+                <button
+                  onClick={testSupabaseConnection}
+                  disabled={isTestingConnection}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-brand-600 text-white rounded-lg text-xs font-bold hover:bg-brand-700 disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
+                >
+                  {isTestingConnection ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  <span>{isTestingConnection ? 'Đang kiểm tra...' : 'Kiểm tra ngay'}</span>
+                </button>
+              </div>
+
+              {connectionTestResult && (
+                <div className={`p-3.5 rounded-xl text-xs font-semibold flex items-center gap-2 border ${
+                  connectionTestResult.success 
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                    : 'bg-rose-50 text-rose-800 border-rose-200'
+                }`}>
+                  {connectionTestResult.success ? <Check className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+                  <span>{connectionTestResult.message}</span>
+                </div>
+              )}
+
               <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed space-y-1">
                 <p className="font-bold text-sm text-blue-950 mb-1">Hướng dẫn cài đặt trên Supabase:</p>
                 <p>1. Đăng nhập vào <strong>dashboard.supabase.com</strong> và chọn dự án của bạn.</p>
@@ -852,6 +1135,104 @@ export default function App() {
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
               <button
                 onClick={() => setShowSqlModal(false)}
+                className="px-5 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-300 transition-colors cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Backup and Restore Modal */}
+      {showBackupModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full flex flex-col overflow-hidden border border-slate-200">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+                  <Download className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Sao Lưu & Phục Hồi Dữ Liệu</h3>
+                  <p className="text-xs text-slate-500 font-medium">Bảo vệ an toàn 100% dữ liệu lớp học, môn học, giáo viên & thời khóa biểu</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowBackupModal(false)}
+                className="p-2 hover:bg-slate-200 rounded-lg text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-bold text-emerald-950">Xuất tệp sao lưu về máy tính (.JSON)</h4>
+                    <p className="text-xs text-emerald-800">
+                      Tải toàn bộ cấu hình hiện tại về máy tính dưới dạng tệp tin JSON an toàn. Bạn có thể lưu trữ hoặc chuyển sang máy tính khác bất kỳ lúc nào.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleExportBackup}
+                  className="mt-3 flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all shadow-xs cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Tải tệp sao lưu (.json) ngay</span>
+                </button>
+              </div>
+
+              <div className="p-4 bg-brand-50 border border-brand-200 rounded-xl">
+                <div className="space-y-1">
+                  <h4 className="text-sm font-bold text-brand-950">Khôi phục từ tệp máy tính (.JSON)</h4>
+                  <p className="text-xs text-brand-800">
+                    Chọn tệp JSON đã sao lưu trước đó từ máy tính để phục hồi ngay lập tức 100% dữ liệu lớp học, giáo viên và kết quả xếp lịch.
+                  </p>
+                </div>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mt-3 flex items-center gap-2 px-4 py-2.5 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 transition-all shadow-xs cursor-pointer"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>Chọn tệp JSON để phục hồi</span>
+                </button>
+              </div>
+
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800">Khôi phục bản sao lưu trong máy</h4>
+                  <p className="text-[11px] text-slate-500">Khôi phục dữ liệu từ bản lưu đệm gần nhất trong trình duyệt</p>
+                </div>
+                <button
+                  onClick={handleRestoreLocalBackup}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-200 text-slate-800 rounded-lg text-xs font-bold hover:bg-slate-300 transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Khôi phục</span>
+                </button>
+              </div>
+
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-amber-900">Đồng bộ lại lên Supabase</h4>
+                  <p className="text-[11px] text-amber-700">Đẩy ngay toàn bộ dữ liệu đang có lên máy chủ Supabase</p>
+                </div>
+                <button
+                  onClick={handleSave}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 transition-colors shadow-xs cursor-pointer"
+                >
+                  <Cloud className="w-4 h-4" />
+                  <span>Đồng bộ ngay</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+              <button
+                onClick={() => setShowBackupModal(false)}
                 className="px-5 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold hover:bg-slate-300 transition-colors cursor-pointer"
               >
                 Đóng
