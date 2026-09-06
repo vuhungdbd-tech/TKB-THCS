@@ -1212,28 +1212,6 @@ function DailyPeriodsConfigUI({ config, setConfig, classes, subjects, teachers }
 
       {activeTab === 'grade' && (
         <div className="space-y-6">
-          {/* Global Quick Action Bar */}
-          <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
-            <div>
-              <span className="font-extrabold text-amber-900 block">⚡ Áp dụng mẫu nhanh toàn trường (Khối 6, 7, 8, 9):</span>
-              <p className="text-amber-800 text-[11px] mt-0.5">Tự động cấu hình số tiết Sáng &amp; Chiều chuẩn 29 tiết/tuần theo đúng thời khóa biểu trường của bạn.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => applyPresetForAllGrades('school_29_lessons')}
-                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-lg shadow-xs transition-colors cursor-pointer"
-              >
-                Mẫu chuẩn 29 tiết (Sáng 4, Chiều T4-T6)
-              </button>
-              <button
-                onClick={() => applyPresetForAllGrades('morning_only')}
-                className="px-2.5 py-1.5 bg-white border border-amber-300 text-amber-900 font-bold rounded-lg hover:bg-amber-100 transition-colors cursor-pointer"
-              >
-                Chỉ học sáng (20 tiết)
-              </button>
-            </div>
-          </div>
-
           {grades.map(grade => {
             return (
               <div key={grade} className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
@@ -1247,12 +1225,6 @@ function DailyPeriodsConfigUI({ config, setConfig, classes, subjects, teachers }
                   <div className="flex items-center gap-1.5 text-[11px]">
                     <span className="text-slate-400 font-medium mr-1">Mẫu nhanh:</span>
                     <button
-                      onClick={() => applyPresetForGrade(grade, 'school_29_lessons')}
-                      className="px-2 py-1 bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200 rounded font-bold transition-colors"
-                    >
-                      Mẫu 29 tiết (Sáng 4, Chiều T4-T6)
-                    </button>
-                    <button
                       onClick={() => applyPresetForGrade(grade, 'morning_only')}
                       className="px-2 py-1 bg-white border border-slate-200 hover:border-brand-300 rounded text-slate-700 hover:text-brand-600 font-medium transition-colors"
                     >
@@ -1263,6 +1235,12 @@ function DailyPeriodsConfigUI({ config, setConfig, classes, subjects, teachers }
                       className="px-2 py-1 bg-white border border-slate-200 hover:border-brand-300 rounded text-slate-700 hover:text-brand-600 font-medium transition-colors"
                     >
                       Chiều T2,T4,T6
+                    </button>
+                    <button
+                      onClick={() => applyPresetForGrade(grade, 'full')}
+                      className="px-2 py-1 bg-white border border-slate-200 hover:border-brand-300 rounded text-slate-700 hover:text-brand-600 font-medium transition-colors"
+                    >
+                      Học cả ngày
                     </button>
                   </div>
                 </div>
